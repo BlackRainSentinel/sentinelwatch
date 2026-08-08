@@ -1,0 +1,14 @@
+[Unit]
+Description=Run SentinelWatch every 12 hours
+Documentation=https://github.com/BlackRainSentinel/sentinelwatch
+
+[Timer]
+# 04:00 and 16:00 UTC — keep delivery.digest_hour_utc in sync (4 or 16)
+OnCalendar=*-*-* 04,16:00:00
+Persistent=true
+RandomizedDelaySec=300
+AccuracySec=1min
+Unit=sentinelwatch.service
+
+[Install]
+WantedBy=timers.target

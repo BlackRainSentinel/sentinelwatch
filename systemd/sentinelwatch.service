@@ -1,0 +1,24 @@
+[Unit]
+Description=SentinelWatch vulnerability monitoring (oneshot)
+Documentation=https://github.com/BlackRainSentinel/sentinelwatch
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=sentinelwatch
+Group=sentinelwatch
+WorkingDirectory=/opt/sentinelwatch
+EnvironmentFile=-/opt/sentinelwatch/.env
+Environment=SENTINELWATCH_CONFIG=/opt/sentinelwatch/config/config.yaml
+ExecStart=/opt/sentinelwatch/.venv/bin/python -m sentinelwatch
+Nice=10
+# Harden lightly — adjust if your install path differs
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sentinelwatch/data
+
+[Install]
+WantedBy=multi-user.target

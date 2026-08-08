@@ -1,0 +1,218 @@
+# SentinelWatch configuration
+# Secrets stay in .env — never put tokens here.
+
+database:
+  path: data/sentinelwatch.db
+
+# Software actually running in your fleet (static allowlist for v1).
+# fleet_match is true when a finding mentions any of these tokens.
+fleet_software:
+  - cpanel
+  - whm
+  - directadmin
+  - litespeed
+  - openlitespeed
+  - apache
+  - httpd
+  - exim
+  - almalinux
+  - cloudlinux
+  - ubuntu
+  - mariadb
+  - mysql
+  - openssl
+  - php
+  - wordpress
+
+delivery:
+  # Email when cvss_score >= this OR fleet_match is true
+  email_cvss_threshold: 9.0
+  # MUST match one of the systemd timer run hours (UTC), else digest never fires.
+  # Default timer: 04:00 and 16:00 UTC → use 4 or 16.
+  digest_hour_utc: 4
+
+# ---------------------------------------------------------------------------
+# Sources
+# type: feed | nvd | wordfence | github_advisories
+# Set enabled: false to pause a source without deleting it.
+# ---------------------------------------------------------------------------
+sources:
+
+  # --- Cross-cutting APIs --------------------------------------------------
+
+  - name: nvd
+    type: nvd
+    enabled: true
+    lookback_days: 14
+    results_per_page: 50
+    keywords:
+      - cpanel
+      - whm
+      - DirectAdmin
+      - LiteSpeed
+      - Apache HTTP Server
+      - httpd
+      - Exim
+      - AlmaLinux
+      - CloudLinux
+      - Ubuntu
+      - MariaDB
+      - OpenSSL
+      - PHP
+      - WordPress
+
+  - name: wordfence
+    type: wordfence
+    enabled: true
+    max_items: 200
+
+  - name: github_advisories
+    type: github_advisories
+    enabled: true
+    ecosystems:
+      - composer
+      - npm
+    per_page: 50
+    max_pages: 2
+
+  # --- cPanel / WHM --------------------------------------------------------
+
+  - name: cpanel_release_notes
+    type: feed
+    enabled: true
+    url: https://docs.cpanel.net/release-notes/release-notes/index.xml
+    default_products: [cpanel, whm]
+    # Release notes are noisy; keep security-ish entries when possible
+    include_keywords:
+      - security
+      - cve
+      - vulnerab
+      - exploit
+      - privilege
+      - xss
+      - injection
+
+  - name: cpanel_security_news
+    type: feed
+    enabled: true
+    url: https://news.cpanel.com/category/security-2/feed/
+    default_products: [cpanel, whm]
+
+  # --- DirectAdmin ---------------------------------------------------------
+  # No confirmed official RSS as of writing; forum/changelog may gain one later.
+  # DirectAdmin CVEs still arrive via the NVD keyword collector.
+
+  # --- LiteSpeed -----------------------------------------------------------
+
+  - name: litespeed_blog
+    type: feed
+    enabled: true
+    url: https://blog.litespeedtech.com/feed/
+    default_products: [litespeed]
+    include_keywords:
+      - security
+      - cve
+      - vulnerab
+      - advisory
+      - patch
+      - exploit
+
+  # --- Apache HTTPD --------------------------------------------------------
+  # Primary coverage via NVD keywords; announce list has no stable public RSS.
+
+  # --- Exim ----------------------------------------------------------------
+  # GitHub security advisories for Exim are covered by NVD + GHSA ecosystem
+  # scans; announce list is HTML-only for now.
+
+  # --- AlmaLinux -----------------------------------------------------------
+
+  - name: almalinux_8_errata
+    type: feed
+    enabled: true
+    url: https://errata.almalinux.org/8/errata.rss
+    default_products: [almalinux]
+    include_keywords:
+      - Important
+      - Critical
+      - Moderate
+      - security
+      - CVE
+
+  - name: almalinux_9_errata
+    type: feed
+    enabled: true
+    url: https://errata.almalinux.org/9/errata.rss
+    default_products: [almalinux]
+    include_keywords:
+      - Important
+      - Critical
+      - Moderate
+      - security
+      - CVE
+
+  # --- CloudLinux ----------------------------------------------------------
+
+  - name: cloudlinux_blog
+    type: feed
+    enabled: true
+    url: https://blog.cloudlinux.com/feed/
+    default_products: [cloudlinux]
+    include_keywords:
+      - security
+      - cve
+      - vulnerab
+      - advisory
+      - kernel
+      - lve
+      - cagefs
+      - imunify
+
+  - name: cloudlinux_status
+    type: feed
+    enabled: true
+    url: https://cloudlinux.statuspage.io/history.rss
+    default_products: [cloudlinux]
+
+  # --- Ubuntu --------------------------------------------------------------
+
+  - name: ubuntu_usn
+    type: feed
+    enabled: true
+    url: https://ubuntu.com/security/notices/rss.xml
+    default_products: [ubuntu]
+    # Optional: tighten to stack packages you care about
+    # include_keywords: [openssl, php, apache, mariadb, mysql, exim]
+
+  # --- MariaDB / OpenSSL / PHP ---------------------------------------------
+  # Covered primarily by NVD keywords; add vendor feeds here when available.
+
+  # --- Cross-cutting lists -------------------------------------------------
+
+  - name: seclists_oss_sec
+    type: feed
+    enabled: true
+    url: https://seclists.org/rss/oss-sec.rss
+    default_products: []
+    include_keywords:
+      - cpanel
+      - whm
+      - directadmin
+      - litespeed
+      - apache
+      - httpd
+      - exim
+      - almalinux
+      - cloudlinux
+      - ubuntu
+      - mariadb
+      - openssl
+      - php
+      - wordpress
+
+  # --- WordPress (extra RSS; Wordfence JSON API is the main WP source) -----
+
+  - name: wordfence_rss
+    type: feed
+    enabled: false
+    url: https://www.wordfence.com/threat-intel/vulnerabilities/rss
+    default_products: [wordpress]
