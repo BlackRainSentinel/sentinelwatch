@@ -1,13 +1,14 @@
 # SentinelWatch
 
-███████╗███████╗███╗ ██╗████████╗██╗███╗ ██╗███████╗██╗
-██╔════╝██╔════╝████╗ ██║╚══██╔══╝██║████╗ ██║██╔════╝██║
-███████╗█████╗ ██╔██╗ ██║ ██║ ██║██╔██╗ ██║█████╗ ██║
-╚════██║██╔══╝ ██║╚██╗██║ ██║ ██║██║╚██╗██║██╔══╝ ██║
-███████║███████╗██║ ╚████║ ██║ ██║██║ ╚████║███████╗███████╗
-╚══════╝╚══════╝╚═╝ ╚═══╝ ╚═╝ ╚═╝╚═╝ ╚═══╝╚══════╝╚══════╝
-WATCH :: CVE & Vulnerability Monitor for Shared Hosting
-
+```
+███████╗███████╗███╗   ██╗████████╗██╗███╗   ██╗███████╗██╗
+██╔════╝██╔════╝████╗  ██║╚══██╔══╝██║████╗  ██║██╔════╝██║
+███████╗█████╗  ██╔██╗ ██║   ██║   ██║██╔██╗ ██║█████╗  ██║
+╚════██║██╔══╝  ██║╚██╗██║   ██║   ██║██║╚██╗██║██╔══╝  ██║
+███████║███████╗██║ ╚████║   ██║   ██║██║ ╚████║███████╗███████╗
+╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝
+        WATCH :: CVE & Vulnerability Monitor for Shared Hosting
+```
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%2F%20systemd-orange.svg)](#deploy-with-systemd)
@@ -38,10 +39,11 @@ OpenSSL, PHP, WordPress).
 Pulls from multiple public sources, deduplicates in SQLite, classifies by
 category / severity / fleet match, and alerts over Telegram and email.
 
-collectors → normalize → SQLite dedup → classify → deliver
-│ │ │ │
-feed / NVD / WF / GHSA source:id once tier+fleet TG / email / digest
-
+```
+collectors  →  normalize  →  SQLite dedup  →  classify  →  deliver
+   │                              │               │            │
+ feed / NVD / WF / GHSA     source:id once   tier+fleet   TG / email / digest
+```
 
 - **Immediate Telegram** — `critical` / `high`, or any `fleet_match`
 - **Email** — CVSS ≥ threshold (default 9.0) **or** `fleet_match`
@@ -182,17 +184,18 @@ pytest -q
 
 ## Layout
 
+```
 sentinelwatch/
-collectors/ # one module per API type + generic feed
-classifier.py
-db.py
-models.py
-notifier.py
-pipeline.py
+  collectors/     # one module per API type + generic feed
+  classifier.py
+  db.py
+  models.py
+  notifier.py
+  pipeline.py
 config/config.yaml
 systemd/
 tests/
-
+```
 
 ---
 
