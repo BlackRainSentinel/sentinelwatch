@@ -15,6 +15,7 @@ from sentinelwatch.classifier import (
 from sentinelwatch.models import Vulnerability
 
 
+
 def _v(**kwargs) -> Vulnerability:
     base = dict(
         external_id="X",
