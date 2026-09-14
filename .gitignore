@@ -38,3 +38,8 @@ htmlcov/
 
 # Local archives
 *.zip
+
+# Demo frontend
+node_modules/
+demo/**/dist/
+demo/**/node_modules/
