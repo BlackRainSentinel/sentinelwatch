@@ -1,17 +1,17 @@
 [Unit]
-Description=SentinelWatch full oneshot (compat)
+Description=SentinelWatch Telegram command bot
 After=network-online.target
-Wants=network-online.target
 
 [Service]
-Type=oneshot
+Type=simple
 User=sentinelwatch
 Group=sentinelwatch
 WorkingDirectory=/opt/sentinelwatch
 EnvironmentFile=-/opt/sentinelwatch/.env
 Environment=SENTINELWATCH_CONFIG=/opt/sentinelwatch/config/config.yaml
-ExecStart=/opt/sentinelwatch/.venv/bin/python -m sentinelwatch --schedule all
-Nice=10
+ExecStart=/opt/sentinelwatch/.venv/bin/python -m sentinelwatch.bot
+Restart=always
+RestartSec=10
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

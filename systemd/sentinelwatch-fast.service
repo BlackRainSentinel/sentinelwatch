@@ -1,5 +1,6 @@
 [Unit]
-Description=SentinelWatch full oneshot (compat)
+Description=SentinelWatch fast schedule (Tier 1/2 collectors)
+Documentation=https://github.com/BlackRainSentinel/sentinelwatch
 After=network-online.target
 Wants=network-online.target
 
@@ -10,7 +11,7 @@ Group=sentinelwatch
 WorkingDirectory=/opt/sentinelwatch
 EnvironmentFile=-/opt/sentinelwatch/.env
 Environment=SENTINELWATCH_CONFIG=/opt/sentinelwatch/config/config.yaml
-ExecStart=/opt/sentinelwatch/.venv/bin/python -m sentinelwatch --schedule all
+ExecStart=/opt/sentinelwatch/.venv/bin/python -m sentinelwatch --schedule fast
 Nice=10
 NoNewPrivileges=true
 PrivateTmp=true

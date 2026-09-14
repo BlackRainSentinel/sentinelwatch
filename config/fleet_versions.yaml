@@ -1,0 +1,24 @@
+# Versions you actually run. Used for applicability filtering.
+# Format: taxonomy product id → list of version strings.
+# If omitted for a product, findings still alert (fail open).
+
+php:php:
+  - "8.1"
+  - "8.2"
+  - "8.3"
+
+exim:exim:
+  - "4.96"
+
+openssl:openssl:
+  - "3.0"
+
+mariadb:mariadb:
+  - "10.6"
+  - "10.11"
+
+# Uncomment / edit to match your fleet:
+# cpanel:cpanel: ["128"]
+# litespeed:litespeed: ["6.3"]
+# cloudlinux:cloudlinux: ["8"]
+# almalinux:almalinux: ["8", "9"]

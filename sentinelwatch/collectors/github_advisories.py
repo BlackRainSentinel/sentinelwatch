@@ -1,9 +1,10 @@
-"""GitHub Security Advisories via the public REST API (ecosystem filtered)."""
+"""GitHub Security Advisories — scoped to hosting-relevant packages."""
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any, Optional
 
 from sentinelwatch.collectors.base import Collector, http_get, parse_date
@@ -13,20 +14,48 @@ log = logging.getLogger(__name__)
 
 GHSA_URL = "https://api.github.com/advisories"
 
+# Default relevance filter — package name / summary must hit one of these.
+DEFAULT_INCLUDE = [
+    "wordpress",
+    "woocommerce",
+    "php",
+    "apache",
+    "httpd",
+    "nginx",
+    "exim",
+    "dovecot",
+    "mariadb",
+    "mysql",
+    "openssl",
+    "cpanel",
+    "litespeed",
+    "clamav",
+    "bind",
+    "powerdns",
+    "spamassassin",
+    "pure-ftpd",
+    "mongodb",
+]
+
 
 class GithubAdvisoriesCollector(Collector):
     name = "github_advisories"
+    source_tier = 2
 
     def __init__(
         self,
         ecosystems: list[str] | None = None,
         *,
+        include_keywords: list[str] | None = None,
         per_page: int = 50,
         max_pages: int = 2,
         token: str | None = None,
+        source_tier: int = 2,
     ) -> None:
-        # Shared hosting focus: php packs + npm themes/plugins adjacent
-        self.ecosystems = ecosystems or ["composer", "npm", "pip"]
+        self.ecosystems = ecosystems or ["composer"]
+        self.include_keywords = [
+            k.lower() for k in (include_keywords or DEFAULT_INCLUDE)
+        ]
         self.per_page = per_page
         self.max_pages = max_pages
         self.token = (
@@ -34,16 +63,23 @@ class GithubAdvisoriesCollector(Collector):
             or os.environ.get("GITHUB_TOKEN", "")
             or os.environ.get("GH_TOKEN", "")
         ).strip()
+        self.source_tier = int(source_tier)
 
     def collect(self) -> list[Vulnerability]:
         seen: dict[str, Vulnerability] = {}
         for eco in self.ecosystems:
             try:
                 for vuln in self._fetch_ecosystem(eco):
-                    seen[vuln.external_id] = vuln
+                    if self._relevant(vuln):
+                        seen[vuln.external_id] = vuln
             except Exception:
                 log.exception("GitHub advisories failed for ecosystem=%r", eco)
+                raise
         return list(seen.values())
+
+    def _relevant(self, vuln: Vulnerability) -> bool:
+        text = f"{vuln.title} {vuln.description} {' '.join(vuln.affected_products)}".lower()
+        return any(k in text for k in self.include_keywords)
 
     def _fetch_ecosystem(self, ecosystem: str) -> list[Vulnerability]:
         headers = {
@@ -94,11 +130,16 @@ class GithubAdvisoriesCollector(Collector):
             if pkg:
                 products.append(f"{ecosystem}:{pkg}")
 
+        cve_ids: list[str] = []
         cve_id = item.get("cve_id")
         if cve_id:
-            products.append(str(cve_id).upper())
+            cve_ids.append(str(cve_id).upper())
+        # Also pull CVEs mentioned in text
+        for m in re.finditer(r"CVE-\d{4}-\d{4,}", f"{summary} {description}", re.I):
+            cve_ids.append(m.group(0).upper())
+        cve_ids = sorted(set(cve_ids))
 
-        refs = []
+        refs: list[str] = []
         html_url = item.get("html_url") or f"https://github.com/advisories/{ghsa}"
         refs.append(html_url)
         for r in item.get("references") or []:
@@ -115,9 +156,11 @@ class GithubAdvisoriesCollector(Collector):
             cvss_score=score,
             reported_severity=severity if isinstance(severity, str) else None,
             affected_products=products,
+            cve_ids=cve_ids,
             published_date=parse_date(
                 item.get("published_at") or item.get("updated_at")
             ),
             url=html_url,
             references=refs,
+            source_tier=self.source_tier,
         )
