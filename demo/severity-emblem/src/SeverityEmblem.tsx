@@ -97,9 +97,7 @@ export function SeverityEmblem({
           role="presentation"
           className="sw-emblem__img"
         />
-        <span className="sw-emblem__wm" aria-hidden="true">
-          {projectName.toLowerCase()}
-        </span>
+        {/* Watermark is burned into the GIF/PNG as giant background type */}
       </div>
       <figcaption className="sw-emblem__meta" id={`${reactId}-label`}>
         <p className="sw-emblem__cve">

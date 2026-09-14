@@ -10,20 +10,22 @@
 | [W3C reduced motion](https://www.w3.org/WAI/WCAG22/Techniques/css/C39) | Prefer static PNG when `prefers-reduced-motion: reduce`. |
 | [W3C pause/stop/hide](https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html) | Continuous animation needs a pause control. |
 
-## Concept — **SW Beacon**
+## Concept — **SW Beacon** (v2 cinematic)
 
 Original emblem: monogram **SW** inside a core (circle → angular hex for Critical), surrounded by signal rings.
 
+**Watermark:** giant condensed **SENTINEL / WATCH** fills the background (poster typography), plus a scrolling marquee strip — not a tiny footer stamp.
+
+**Motion extras:** hex lattice, HUD corner brackets, diagonal scan beam, shockwave rings, multi-node orbits, particle field; Critical adds subtle monogram offset.
+
 | State | Geometry | Motion | Accent |
 |-------|----------|--------|--------|
-| None | Single calm ring | Minimal drift | Teal |
-| Low | One ring + orbital node | Slow orbit | Blue |
-| Medium | Two rings | Expanding pulse | Amber |
+| None | Single calm ring | Soft scan | Teal |
+| Low | One ring + nodes | Slow orbit | Blue |
+| Medium | Two rings | Expanding shockwave | Amber |
 | High | Two rings, counter-spin | Assertive orbit | Orange |
-| Critical | Hex shield + three rings | Rhythmic pulse | Crimson |
+| Critical | Hex shield + three rings | Pulse + scan | Crimson |
 | Unknown | Dashed ring | Near-static | Gray + UNRATED |
-
-Watermark **`sentinelwatch`** is burned into every GIF frame and PNG.
 
 ## Export
 

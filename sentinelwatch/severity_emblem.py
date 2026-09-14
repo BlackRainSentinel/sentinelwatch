@@ -1,8 +1,9 @@
 """
-Severity emblem — branded SW beacon animated by CVSS score band.
+Severity emblem — cinematic SW Beacon animated by CVSS score band.
 
-GIFs are prerecorded assets. Application code selects the correct file
-from CVSS; the GIF itself never fetches or scores vulnerabilities.
+Creative direction: cyber-neon HUD + giant cinematic background typography
+(poster watermark), scan beams, hex lattice, multi-node orbits.
+GIFs are prerecorded; app code selects the file from CVSS.
 """
 
 from __future__ import annotations
@@ -21,13 +22,12 @@ except ImportError:  # pragma: no cover
     ImageDraw = None  # type: ignore
     ImageFont = None  # type: ignore
 
-# Configurable project watermark (embedded in every frame)
 PROJECT_NAME = "sentinelwatch"
 
 CANVAS = 512
 FPS = 20
 DURATION_S = 4.0
-FRAME_COUNT = int(FPS * DURATION_S)  # 80
+FRAME_COUNT = int(FPS * DURATION_S)
 
 
 class SeverityState(str, Enum):
@@ -46,37 +46,36 @@ class SeverityVisual:
     accent: tuple[int, int, int]
     secondary: tuple[int, int, int]
     ring_count: int
-    pulse: float  # amplitude 0–1
-    spin: float  # revolutions per loop
-    expand: float  # ring expand amplitude
-    angular: bool  # critical silhouette
+    pulse: float
+    spin: float
+    expand: float
+    angular: bool
     dashed: bool
 
 
 VISUALS: dict[SeverityState, SeverityVisual] = {
     SeverityState.NONE: SeverityVisual(
-        SeverityState.NONE, "NONE", (90, 200, 190), (40, 90, 88), 1, 0.02, 0.15, 0.0, False, False
+        SeverityState.NONE, "NONE", (90, 200, 190), (40, 90, 88), 1, 0.03, 0.2, 0.0, False, False
     ),
     SeverityState.LOW: SeverityVisual(
-        SeverityState.LOW, "LOW", (70, 150, 255), (30, 70, 130), 1, 0.04, 0.35, 0.05, False, False
+        SeverityState.LOW, "LOW", (70, 150, 255), (30, 70, 130), 1, 0.05, 0.4, 0.06, False, False
     ),
     SeverityState.MEDIUM: SeverityVisual(
-        SeverityState.MEDIUM, "MEDIUM", (240, 180, 40), (120, 90, 20), 2, 0.08, 0.55, 0.18, False, False
+        SeverityState.MEDIUM, "MEDIUM", (240, 180, 40), (120, 90, 20), 2, 0.09, 0.6, 0.2, False, False
     ),
     SeverityState.HIGH: SeverityVisual(
-        SeverityState.HIGH, "HIGH", (255, 130, 40), (140, 60, 15), 2, 0.12, 0.85, 0.12, False, False
+        SeverityState.HIGH, "HIGH", (255, 130, 40), (140, 60, 15), 2, 0.13, 0.95, 0.14, False, False
     ),
     SeverityState.CRITICAL: SeverityVisual(
-        SeverityState.CRITICAL, "CRITICAL", (255, 55, 70), (120, 20, 30), 3, 0.18, 1.1, 0.1, True, False
+        SeverityState.CRITICAL, "CRITICAL", (255, 55, 70), (120, 20, 30), 3, 0.2, 1.15, 0.12, True, False
     ),
     SeverityState.UNKNOWN: SeverityVisual(
-        SeverityState.UNKNOWN, "UNRATED", (140, 150, 165), (60, 68, 78), 1, 0.0, 0.08, 0.0, False, True
+        SeverityState.UNKNOWN, "UNRATED", (140, 150, 165), (60, 68, 78), 1, 0.0, 0.1, 0.0, False, True
     ),
 }
 
 
 def cvss_to_state(cvss: float | int | str | None) -> SeverityState:
-    """Map CVSS v3.1/v4.0 numeric score → severity state (FIRST bands)."""
     if cvss is None or cvss == "":
         return SeverityState.UNKNOWN
     try:
@@ -96,13 +95,7 @@ def cvss_to_state(cvss: float | int | str | None) -> SeverityState:
     return SeverityState.CRITICAL
 
 
-def select_assessment(
-    assessments: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    """
-    Selection policy when multiple CVSS assessments exist:
-    prefer NVD/official, then highest score among valid numerics.
-    """
+def select_assessment(assessments: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not assessments:
         return None
 
@@ -120,9 +113,21 @@ def select_assessment(
     return sorted(assessments, key=key)[0]
 
 
-def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
-    paths = []
-    if bold:
+def _font(size: int, *, weight: str = "regular") -> ImageFont.ImageFont:
+    paths: list[str] = []
+    if weight == "black":
+        paths += [
+            "/usr/share/fonts/truetype/noto/NotoSansDisplay-Black.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-Black.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-ExtraBold.ttf",
+        ]
+    if weight in {"extrabold", "black", "condensed"}:
+        paths += [
+            "/usr/share/fonts/truetype/noto/NotoSans-ExtraCondensedExtraBold.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-CondensedExtraBold.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-ExtraBold.ttf",
+        ]
+    if weight in {"bold", "extrabold", "black", "condensed"}:
         paths += [
             "/usr/share/fonts/truetype/noto/NotoSansDisplay-Bold.ttf",
             "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
@@ -150,6 +155,112 @@ def _blend(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[
     )
 
 
+def _draw_hex_grid(draw: ImageDraw.ImageDraw, accent: tuple[int, int, int], t: float) -> None:
+    size = 28
+    h = size * math.sqrt(3)
+    col = _blend((8, 10, 16), accent, 0.14 + 0.05 * math.sin(t * math.pi * 2))
+    for row in range(-1, 22):
+        for col_i in range(-1, 22):
+            x = col_i * size * 1.5
+            y = row * h + (col_i % 2) * (h / 2)
+            pts = [
+                (x + size * 0.42 * math.cos(math.pi / 6 + k * math.pi / 3),
+                 y + size * 0.42 * math.sin(math.pi / 6 + k * math.pi / 3))
+                for k in range(6)
+            ]
+            draw.polygon(pts, outline=col)
+
+
+def _draw_giant_watermark(
+    draw: ImageDraw.ImageDraw,
+    name: str,
+    accent: tuple[int, int, int],
+    t: float,
+) -> None:
+    """Huge condensed poster type — brand as atmosphere, not a footer stamp."""
+    name = (name or PROJECT_NAME).strip().lower()
+    lines = ["SENTINEL", "WATCH"] if name == "sentinelwatch" else [name.upper()]
+    font = _font(122 if len(lines) > 1 else 100, weight="condensed")
+    drift = int(10 * math.sin(t * math.pi * 2))
+    fill = _blend((14, 16, 22), accent, 0.28)
+    edge = _blend((20, 24, 32), accent, 0.42)
+
+    for i, line in enumerate(lines):
+        tw = draw.textlength(line, font=font)
+        x = (CANVAS - tw) / 2
+        y = 55 + drift + i * 115
+        for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
+            draw.text((x + dx, y + dy), line, font=font, fill=edge)
+        draw.text((x, y), line, font=font, fill=fill)
+
+    # Marquee strip — keeps motion alive at the edge
+    micro = _font(20, weight="condensed")
+    strip = f"  {name}  ·  " * 10
+    sx = -int((t * 220) % 240)
+    draw.text((sx, CANVAS - 20), strip, font=micro, fill=_blend((12, 14, 20), accent, 0.35))
+
+
+def _hud_brackets(draw: ImageDraw.ImageDraw, color: tuple[int, int, int], inset: int = 22) -> None:
+    arm, w = 40, 3
+    draw.line([(inset, inset + arm), (inset, inset), (inset + arm, inset)], fill=color, width=w)
+    draw.line(
+        [(CANVAS - inset - arm, inset), (CANVAS - inset, inset), (CANVAS - inset, inset + arm)],
+        fill=color,
+        width=w,
+    )
+    draw.line(
+        [(inset, CANVAS - inset - arm), (inset, CANVAS - inset), (inset + arm, CANVAS - inset)],
+        fill=color,
+        width=w,
+    )
+    draw.line(
+        [
+            (CANVAS - inset - arm, CANVAS - inset),
+            (CANVAS - inset, CANVAS - inset),
+            (CANVAS - inset, CANVAS - inset - arm),
+        ],
+        fill=color,
+        width=w,
+    )
+
+
+def _scan_beam(base: Image.Image, accent: tuple[int, int, int], t: float, intensity: float) -> Image.Image:
+    if intensity <= 0.01:
+        return base
+    overlay = Image.new("RGBA", (CANVAS, CANVAS), (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+    pos = t % 1.0
+    for i in range(-20, 21, 3):
+        alpha = int(max(0, 60 * intensity - abs(i) * 2.4))
+        if alpha < 4:
+            continue
+        x0 = -90 + pos * (CANVAS + 180) + i
+        od.line([(x0, -30), (x0 + CANVAS * 0.38, CANVAS + 30)], fill=(*accent, alpha), width=4)
+    x0 = -90 + pos * (CANVAS + 180)
+    od.line(
+        [(x0, -30), (x0 + CANVAS * 0.38, CANVAS + 30)],
+        fill=(*accent, int(150 * intensity)),
+        width=2,
+    )
+    return Image.alpha_composite(base.convert("RGBA"), overlay).convert("RGB")
+
+
+def _particles(
+    draw: ImageDraw.ImageDraw,
+    accent: tuple[int, int, int],
+    t: float,
+    count: int,
+    spin: float,
+) -> None:
+    for i in range(count):
+        ang = spin * 0.7 + i * (math.pi * 2 / count) + math.sin(t * math.pi * 2 + i) * 0.25
+        rad = 90 + (i % 5) * 30 + 12 * math.sin(t * math.pi * 2 + i * 0.6)
+        x = CANVAS / 2 + rad * math.cos(ang)
+        y = CANVAS / 2 + rad * math.sin(ang)
+        r = 2 + (i % 3)
+        draw.ellipse([x - r, y - r, x + r, y + r], fill=_blend(accent, (255, 255, 255), 0.2))
+
+
 def render_frame(
     state: SeverityState,
     frame_i: int,
@@ -157,110 +268,156 @@ def render_frame(
     project_name: str = PROJECT_NAME,
     score_text: str | None = None,
 ) -> Image.Image:
-    """One 512×512 emblem frame."""
     if Image is None:
         raise RuntimeError("Pillow required")
 
     vis = VISUALS[state]
-    t = frame_i / FRAME_COUNT  # 0..1 loop
-    # Smooth pulse (no strobe): sine
+    t = frame_i / FRAME_COUNT
     pulse = 1.0 + vis.pulse * math.sin(t * math.pi * 2)
     spin = t * vis.spin * math.pi * 2
+    scan_intensity = {
+        SeverityState.NONE: 0.2,
+        SeverityState.LOW: 0.4,
+        SeverityState.MEDIUM: 0.6,
+        SeverityState.HIGH: 0.8,
+        SeverityState.CRITICAL: 1.0,
+        SeverityState.UNKNOWN: 0.25,
+    }[state]
 
-    bg = (8, 10, 16)
+    bg = (5, 7, 11)
     img = Image.new("RGB", (CANVAS, CANVAS), bg)
     draw = ImageDraw.Draw(img)
     cx = cy = CANVAS // 2
 
-    # Soft vignette wash toward accent
     for y in range(CANVAS):
-        dist = abs(y - cy) / cy
-        col = _blend(bg, (vis.accent[0] // 8, vis.accent[1] // 8, vis.accent[2] // 8), 0.35 * (1 - dist))
+        dist = abs(y - cy) / max(cy, 1)
+        heat = (vis.accent[0] // 5, vis.accent[1] // 5, vis.accent[2] // 5)
+        col = _blend(bg, heat, 0.5 * (1 - dist) + 0.1 * math.sin(t * math.pi * 2))
         draw.line([(0, y), (CANVAS, y)], fill=col)
 
-    # Signal rings
-    base_r = 150
+    _draw_hex_grid(draw, vis.accent, t)
+    _draw_giant_watermark(draw, project_name, vis.accent, t)
+    _hud_brackets(draw, _blend(vis.secondary, vis.accent, 0.75))
+
+    if vis.expand > 0:
+        wave = (t * 1.4) % 1.0
+        wr = int(55 + wave * 210)
+        wcol = _blend(bg, vis.accent, max(0.05, 0.55 * (1 - wave)))
+        draw.ellipse([cx - wr, cy - wr, cx + wr, cy + wr], outline=wcol, width=3)
+
+    base_r = 112
     for i in range(vis.ring_count):
-        expand = vis.expand * (0.5 + 0.5 * math.sin(t * math.pi * 2 + i))
-        r = int((base_r + i * 28) * pulse * (1 + expand * 0.35))
-        width = 3 if i == 0 else 2
+        expand = vis.expand * (0.5 + 0.5 * math.sin(t * math.pi * 2 + i * 1.3))
+        r = int((base_r + i * 34) * pulse * (1 + expand * 0.45))
+        width = 4 if i == 0 else 2
+        ring_col = _blend(vis.secondary, vis.accent, 0.55 + 0.2 * i)
         if vis.dashed:
-            # dashed ring via arcs
-            for seg in range(0, 360, 24):
+            for seg in range(0, 360, 18):
                 draw.arc(
                     [cx - r, cy - r, cx + r, cy + r],
-                    start=seg + math.degrees(spin * 0.3),
-                    end=seg + 12 + math.degrees(spin * 0.3),
-                    fill=vis.accent,
+                    start=seg + math.degrees(spin * 0.45),
+                    end=seg + 9 + math.degrees(spin * 0.45),
+                    fill=ring_col,
                     width=width,
                 )
         else:
-            draw.ellipse(
-                [cx - r, cy - r, cx + r, cy + r],
-                outline=_blend(vis.secondary, vis.accent, 0.55 + 0.2 * i),
-                width=width,
-            )
-        # orbital node on outer ring
-        if state != SeverityState.NONE and i == vis.ring_count - 1:
-            ang = spin * (1 if i % 2 == 0 else -1) + i
-            ox = cx + int(r * math.cos(ang))
-            oy = cy + int(r * math.sin(ang))
-            nr = 6 if state != SeverityState.CRITICAL else 8
-            draw.ellipse([ox - nr, oy - nr, ox + nr, oy + nr], fill=vis.accent)
+            draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=vis.secondary, width=width + 2)
+            draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=ring_col, width=width)
 
-    # Emblem core — hex for critical/high angular identity; circle otherwise
-    core_r = int(72 * pulse)
+        if state not in {SeverityState.NONE, SeverityState.UNKNOWN}:
+            nodes = 1 + i
+            for n in range(nodes):
+                ang = spin * (1 if i % 2 == 0 else -1.2) + n * (math.pi * 2 / nodes) + i
+                ox = cx + r * math.cos(ang)
+                oy = cy + r * math.sin(ang)
+                nr = 5 + (2 if state == SeverityState.CRITICAL else 0)
+                draw.ellipse([ox - nr, oy - nr, ox + nr, oy + nr], fill=vis.accent)
+                draw.ellipse([ox - 2, oy - 2, ox + 2, oy + 2], fill=(255, 255, 255))
+
+    pcount = {
+        SeverityState.NONE: 8,
+        SeverityState.LOW: 12,
+        SeverityState.MEDIUM: 16,
+        SeverityState.HIGH: 20,
+        SeverityState.CRITICAL: 28,
+        SeverityState.UNKNOWN: 8,
+    }[state]
+    _particles(draw, vis.accent, t, pcount, spin)
+
+    core_r = int(66 * pulse)
+    core_fill = (12, 16, 26)
     if vis.angular:
-        # angular hex shield
-        pts = []
+        pts = [
+            (cx + int(core_r * 1.22 * math.cos(spin * 0.12 + k * math.pi / 3 - math.pi / 6)),
+             cy + int(core_r * 1.22 * math.sin(spin * 0.12 + k * math.pi / 3 - math.pi / 6)))
+            for k in range(6)
+        ]
+        draw.polygon(pts, fill=core_fill, outline=vis.accent)
+        pts2 = [
+            (cx + int(core_r * 0.7 * math.cos(-spin * 0.08 + k * math.pi / 3 - math.pi / 6)),
+             cy + int(core_r * 0.7 * math.sin(-spin * 0.08 + k * math.pi / 3 - math.pi / 6)))
+            for k in range(6)
+        ]
+        draw.polygon(pts2, outline=_blend(vis.accent, (255, 255, 255), 0.35))
         for k in range(6):
-            a = spin * 0.15 + k * math.pi / 3 - math.pi / 6
-            pts.append((cx + int(core_r * 1.15 * math.cos(a)), cy + int(core_r * 1.15 * math.sin(a))))
-        draw.polygon(pts, fill=(18, 22, 32), outline=vis.accent)
-        draw.polygon(pts, outline=vis.accent)
-        # inner hex
-        pts2 = []
-        for k in range(6):
-            a = -spin * 0.1 + k * math.pi / 3 - math.pi / 6
-            pts2.append((cx + int(core_r * 0.78 * math.cos(a)), cy + int(core_r * 0.78 * math.sin(a))))
-        draw.polygon(pts2, outline=_blend(vis.accent, (255, 255, 255), 0.25))
+            a = spin * 0.12 + k * math.pi / 3 - math.pi / 6
+            draw.line(
+                [
+                    (cx + int(core_r * 1.3 * math.cos(a)), cy + int(core_r * 1.3 * math.sin(a))),
+                    (cx + int(core_r * 1.48 * math.cos(a)), cy + int(core_r * 1.48 * math.sin(a))),
+                ],
+                fill=vis.accent,
+                width=3,
+            )
     else:
         draw.ellipse(
-            [cx - core_r, cy - core_r, cx + core_r, cy + core_r],
-            fill=(18, 22, 32),
-            outline=vis.accent,
-            width=3,
+            [cx - core_r - 5, cy - core_r - 5, cx + core_r + 5, cy + core_r + 5],
+            outline=vis.secondary,
+            width=2,
         )
         draw.ellipse(
-            [cx - int(core_r * 0.78), cy - int(core_r * 0.78), cx + int(core_r * 0.78), cy + int(core_r * 0.78)],
+            [cx - core_r, cy - core_r, cx + core_r, cy + core_r],
+            fill=core_fill,
+            outline=vis.accent,
+            width=4,
+        )
+        draw.ellipse(
+            [cx - int(core_r * 0.7), cy - int(core_r * 0.7), cx + int(core_r * 0.7), cy + int(core_r * 0.7)],
             outline=vis.secondary,
             width=2,
         )
 
-    # SW monogram
-    mono = _font(42, bold=True)
-    label = "SW"
-    tw = draw.textlength(label, font=mono)
-    draw.text((cx - tw / 2, cy - 28), label, font=mono, fill=vis.accent)
+    mono = _font(50, weight="black")
+    glitch = int(2 * math.sin(t * math.pi * 8)) if state == SeverityState.CRITICAL else 0
+    tw = draw.textlength("SW", font=mono)
+    draw.text((cx - tw / 2 + glitch, cy - 34), "SW", font=mono, fill=vis.accent)
+    if glitch:
+        draw.text(
+            (cx - tw / 2 - glitch, cy - 34),
+            "SW",
+            font=mono,
+            fill=_blend(vis.accent, (255, 90, 110), 0.45),
+        )
 
-    # Severity text — always readable (shape + color + label)
-    sev_f = _font(22, bold=True)
+    sev_f = _font(28, weight="extrabold")
     sev = vis.label
     sw = draw.textlength(sev, font=sev_f)
-    draw.text((cx - sw / 2, cy + core_r + 28), sev, font=sev_f, fill=vis.accent)
+    plate_y = cy + core_r + 34
+    draw.rounded_rectangle(
+        [cx - sw / 2 - 20, plate_y - 8, cx + sw / 2 + 20, plate_y + 36],
+        radius=12,
+        fill=(8, 10, 16),
+        outline=vis.accent,
+        width=2,
+    )
+    draw.text((cx - sw / 2, plate_y), sev, font=sev_f, fill=vis.accent)
 
     if score_text:
-        sf = _font(16, bold=True)
+        sf = _font(15, weight="bold")
         stw = draw.textlength(score_text, font=sf)
-        draw.text((cx - stw / 2, cy + core_r + 56), score_text, font=sf, fill=(180, 190, 205))
+        draw.text((cx - stw / 2, plate_y + 44), score_text, font=sf, fill=(168, 180, 196))
 
-    # Permanent project watermark
-    wm = _font(14, bold=True)
-    name = (project_name or PROJECT_NAME).strip().lower()
-    ww = draw.textlength(name, font=wm)
-    draw.text(((CANVAS - ww) / 2, CANVAS - 36), name, font=wm, fill=(0, 160, 150))
-
-    return img
+    return _scan_beam(img, vis.accent, t, scan_intensity)
 
 
 def render_static_png(
@@ -285,16 +442,14 @@ def render_gif(
         render_frame(state, i, project_name=project_name, score_text=score_text)
         for i in range(FRAME_COUNT)
     ]
-    # Quantize for smaller GIFs
-    q = [f.convert("P", palette=Image.Palette.ADAPTIVE, colors=64) for f in frames]
+    q = [f.convert("P", palette=Image.Palette.ADAPTIVE, colors=96) for f in frames]
     buf = io.BytesIO()
-    duration_ms = int(1000 / FPS)
     q[0].save(
         buf,
         format="GIF",
         save_all=True,
         append_images=q[1:],
-        duration=duration_ms,
+        duration=int(1000 / FPS),
         loop=0,
         optimize=True,
         disposal=2,
@@ -308,11 +463,7 @@ def assets_dir() -> Path:
 
 def asset_paths(state: SeverityState, *, project_name: str = PROJECT_NAME) -> dict[str, Path]:
     root = assets_dir()
-    stem = state.value
-    return {
-        "gif": root / f"{stem}.gif",
-        "png": root / f"{stem}.png",
-    }
+    return {"gif": root / f"{state.value}.gif", "png": root / f"{state.value}.png"}
 
 
 def resolve_assets(
@@ -320,14 +471,12 @@ def resolve_assets(
     *,
     project_name: str = PROJECT_NAME,
 ) -> tuple[SeverityState, Path, Path]:
-    """Return (state, gif_path, png_path) for a CVSS score."""
     state = cvss_to_state(cvss)
     paths = asset_paths(state, project_name=project_name)
     return state, paths["gif"], paths["png"]
 
 
 def export_all(*, project_name: str = PROJECT_NAME, out_dir: Path | None = None) -> dict[str, dict[str, Path]]:
-    """Write all six GIFs + PNGs. Reproducible export entrypoint."""
     root = out_dir or assets_dir()
     root.mkdir(parents=True, exist_ok=True)
     written: dict[str, dict[str, Path]] = {}
