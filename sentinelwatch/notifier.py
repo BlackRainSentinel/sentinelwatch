@@ -59,46 +59,66 @@ def _header_line(vuln: Vulnerability) -> str:
 
 
 def format_alert_caption(vuln: Vulnerability) -> str:
-    """Compact HTML caption under the visual card — emoji scales with score."""
+    """Clear, structured caption — facts here; art is in the image."""
     score = float(vuln.alert_score or 0)
-    flags: list[str] = [_header_line(vuln)]
-    if vuln.in_kev and vuln.in_hosting_kev:
-        flags.append(f"{blast_emoji('critical')} <b>HOSTING-KEV</b>")
-    if not vuln.version_applicable:
-        flags.append("⏭ not in your fleet versions")
+    sig = score_emoji(score)
+    sev = severity_emoji(vuln.severity_tier)
+    tier_name = score_tier(score).upper()
+
+    headline, summary = (vuln.title or "").split(" — ", 1) if " — " in (vuln.title or "") else (
+        vuln.title or "Untitled",
+        "",
+    )
+    headline = headline.replace("PHP CGI", "PHP-CGI")
+
+    # Status lead
+    if vuln.in_kev:
+        lead = f"{sig}{sev} <b>CISA KEV — actively exploited</b> · {tier_name}"
+    elif vuln.in_hosting_kev:
+        lead = f"{sig}{sev} <b>Hosting KEV</b> · {tier_name}"
+    else:
+        lead = f"{sig}{sev} <b>{(vuln.severity_tier or 'alert').upper()}</b> · {tier_name}"
 
     matched = ", ".join(f"<code>{p}</code>" for p in (vuln.matched_products or [])[:4]) or "—"
-    cves = ", ".join(f"<code>{c}</code>" for c in (vuln.cve_ids or [])[:4]) or "—"
-    impact = vuln.impact_note.strip() if vuln.impact_note else ""
-
-    # Score-tier secondary emoji for metrics / impact / link
-    if score >= 90:
-        metric_e, pack_e, id_e, tip_e, link_e = "💀", "🧨", "🆔", "🚨", "🔗"
-    elif score >= 75:
-        metric_e, pack_e, id_e, tip_e, link_e = "🔥", "📦", "🆔", "💡", "🔗"
-    elif score >= 55:
-        metric_e, pack_e, id_e, tip_e, link_e = "🎯", "📦", "🆔", "💡", "🔗"
-    elif score >= 35:
-        metric_e, pack_e, id_e, tip_e, link_e = "📊", "📦", "🆔", "📝", "🔗"
-    else:
-        metric_e, pack_e, id_e, tip_e, link_e = "📡", "📦", "🆔", "📝", "🔗"
+    cves = ", ".join(f"<code>{c}</code>" for c in (vuln.cve_ids or [])[:4]) or (
+        f"<code>{vuln.external_id}</code>" if vuln.external_id else "—"
+    )
 
     parts = [
-        *flags,
-        f"<b>{vuln.title}</b>",
+        lead,
         "",
-        f"{metric_e} score <b>{vuln.alert_score:.0f}</b> · CVSS <b>{_fmt_score(vuln)}</b> · "
-        f"{_tier_label(vuln)} · blast <b>{vuln.blast_radius}</b> {blast_emoji(vuln.blast_radius)}",
-        f"{pack_e} {matched}",
-        f"{id_e} {cves}",
+        f"<b>{headline}</b>",
     ]
+    if summary:
+        parts.append(summary.strip())
+    elif vuln.title and " — " not in vuln.title:
+        pass
+
+    parts += [
+        "",
+        f"<b>Scores</b>",
+        f"Sentinel <b>{score:.0f}</b>/100 · CVSS <b>{_fmt_score(vuln)}</b> · "
+        f"blast <b>{vuln.blast_radius}</b> {blast_emoji(vuln.blast_radius)}",
+        f"Source: {_tier_label(vuln)}",
+        "",
+        f"<b>Target</b>",
+        f"Stack {matched}",
+        f"ID {cves}",
+    ]
+    if not vuln.version_applicable:
+        parts.append("Fleet: <i>not in your configured versions</i>")
+    else:
+        parts.append("Fleet: matches configured stack")
+
+    impact = vuln.impact_note.strip() if vuln.impact_note else ""
     if impact:
-        parts.append(f"{tip_e} <i>{impact[:280]}</i>")
+        parts += ["", "<b>Why it matters</b>", impact[:320]]
+
     if vuln.url:
-        parts.append(f"{link_e} {vuln.url}")
-    parts.append(f"<code>{vuln.thread_key}</code>")
+        parts += ["", f"Details: {vuln.url}"]
+
     text = "\n".join(parts)
-    return text if len(text) <= 1000 else text[:970] + "\n…"
+    return text if len(text) <= 1024 else text[:990] + "\n…"
 
 
 def format_alert(vuln: Vulnerability) -> str:

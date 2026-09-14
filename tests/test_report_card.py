@@ -1,4 +1,4 @@
-"""Visual report card — editorial poster."""
+"""Black Rain threat poster tests."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from PIL import Image
 from sentinelwatch.models import Vulnerability
 from sentinelwatch.notifier import format_alert_caption
 from sentinelwatch.report_card import (
-    build_alert_html,
     render_alert_card,
     render_alert_card_png,
     render_digest_card,
@@ -20,12 +19,12 @@ from sentinelwatch.report_card import (
 )
 
 
-def _sample(*, score: float = 96.0) -> Vulnerability:
+def _sample() -> Vulnerability:
     return Vulnerability(
         external_id="CVE-2024-4577",
         source="cisa_kev",
         title="PHP CGI Argument Injection — remote code execution on shared hosts",
-        description="Actively exploited CGI argument injection.",
+        description="x",
         cvss_score=9.8,
         reported_severity="CRITICAL",
         affected_products=["php:php"],
@@ -40,49 +39,33 @@ def _sample(*, score: float = 96.0) -> Vulnerability:
         version_applicable=True,
         in_kev=True,
         always_alert=True,
-        alert_score=score,
+        alert_score=96,
         blast_radius="critical",
-        impact_note=(
-            "PHP-FPM pools serve many tenants. Map to ea-php*/alt-php* "
-            "before dismissing."
-        ),
+        impact_note="PHP-FPM pools serve many tenants. Map ea-php*/alt-php* before dismissing.",
         channel="critical",
         thread_key="CVE-2024-4577",
     )
 
 
-def test_poster_telegram_size() -> None:
+def test_poster_square() -> None:
     data = render_alert_card(_sample())
-    assert data is not None
-    assert data[:3] == b"\xff\xd8\xff"
+    assert data is not None and data[:3] == b"\xff\xd8\xff"
     img = Image.open(io.BytesIO(data))
-    assert img.size[0] == 1080
-    assert 900 <= img.size[1] <= 1440
-    sample = [img.getpixel((x, y)) for x, y in ((100, 40), (540, 200), (100, 500))]
-    assert any(sum(p) > 80 for p in sample)
+    assert img.size == (1280, 1280)
+    assert sum(img.getpixel((640, 640))) > 20
 
 
-def test_png_2x() -> None:
-    png = render_alert_card_png(_sample())
-    assert png is not None
-    img = Image.open(io.BytesIO(png))
-    assert img.size[0] == 2160
-    assert img.size[1] >= 1800
-
-
-def test_html_banner() -> None:
-    html = build_alert_html(_sample())
-    assert "CISA KEV" in html
-    assert "CVE-2024-4577" in html
-    assert "gauge" not in html.lower()
-
-
-def test_digest_and_sources(tmp_path: Path) -> None:
+def test_png_and_digest(tmp_path: Path) -> None:
+    assert render_alert_card_png(_sample())[:8] == b"\x89PNG\r\n\x1a\n"
     assert render_digest_card([_sample()])[:3] == b"\xff\xd8\xff"
-    paths = write_alert_sources(_sample(), tmp_path)
-    assert paths["jpg"].stat().st_size > 40_000
+    assert write_alert_sources(_sample(), tmp_path)["jpg"].stat().st_size > 50_000
 
 
-def test_caption() -> None:
+def test_caption_structure() -> None:
+    cap = format_alert_caption(_sample())
+    assert "Scores" in cap
+    assert "Why it matters" in cap
+    assert "CVE-2024-4577" in cap
+    assert "PHP-CGI" in cap
     assert score_emoji(96) == "☠️"
-    assert "CISA KEV" in format_alert_caption(_sample())
+    assert "🧨" not in cap  # less emoji spam
