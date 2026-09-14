@@ -11,7 +11,14 @@ from typing import Sequence
 import httpx
 
 from sentinelwatch.models import Vulnerability
-from sentinelwatch.report_card import render_alert_card, render_digest_card
+from sentinelwatch.report_card import (
+    blast_emoji,
+    render_alert_card,
+    render_digest_card,
+    score_emoji,
+    score_tier,
+    severity_emoji,
+)
 
 log = logging.getLogger(__name__)
 
@@ -28,13 +35,35 @@ def _tier_label(vuln: Vulnerability) -> str:
     return _TIER_LABEL.get(int(vuln.source_tier or 3), f"T{vuln.source_tier}")
 
 
-def format_alert_caption(vuln: Vulnerability) -> str:
-    """Compact HTML caption under the visual card."""
-    flags: list[str] = []
+def _header_line(vuln: Vulnerability) -> str:
+    """Score-driven lead emoji + status line (not one emoji for all)."""
+    score = float(vuln.alert_score or 0)
+    sev = severity_emoji(vuln.severity_tier)
+    sig = score_emoji(score)
+    blast = blast_emoji(vuln.blast_radius)
+    tier = score_tier(score)
+
     if vuln.in_kev:
-        flags.append("🚨 <b>CISA KEV — ACTIVELY EXPLOITED</b>")
+        return f"{sig}{sev} <b>CISA KEV — ACTIVELY EXPLOITED</b> · {tier.upper()}"
     if vuln.in_hosting_kev:
-        flags.append("🔥 <b>HOSTING-KEV</b>")
+        return f"{sig}{blast} <b>HOSTING-KEV</b> · {tier.upper()}"
+    if score >= 90:
+        return f"{sig}{sev} <b>CATASTROPHIC HOSTING RISK</b>"
+    if score >= 75:
+        return f"{sig}{sev} <b>SEVERE — PRIORITIZE PATCH</b>"
+    if score >= 55:
+        return f"{sig}{sev} <b>ELEVATED — REVIEW TODAY</b>"
+    if score >= 35:
+        return f"{sig} <b>MODERATE — TRACK</b>"
+    return f"{sig} <b>WATCHLIST</b>"
+
+
+def format_alert_caption(vuln: Vulnerability) -> str:
+    """Compact HTML caption under the visual card — emoji scales with score."""
+    score = float(vuln.alert_score or 0)
+    flags: list[str] = [_header_line(vuln)]
+    if vuln.in_kev and vuln.in_hosting_kev:
+        flags.append(f"{blast_emoji('critical')} <b>HOSTING-KEV</b>")
     if not vuln.version_applicable:
         flags.append("⏭ not in your fleet versions")
 
@@ -42,19 +71,31 @@ def format_alert_caption(vuln: Vulnerability) -> str:
     cves = ", ".join(f"<code>{c}</code>" for c in (vuln.cve_ids or [])[:4]) or "—"
     impact = vuln.impact_note.strip() if vuln.impact_note else ""
 
+    # Score-tier secondary emoji for metrics / impact / link
+    if score >= 90:
+        metric_e, pack_e, id_e, tip_e, link_e = "💀", "🧨", "🆔", "🚨", "🔗"
+    elif score >= 75:
+        metric_e, pack_e, id_e, tip_e, link_e = "🔥", "📦", "🆔", "💡", "🔗"
+    elif score >= 55:
+        metric_e, pack_e, id_e, tip_e, link_e = "🎯", "📦", "🆔", "💡", "🔗"
+    elif score >= 35:
+        metric_e, pack_e, id_e, tip_e, link_e = "📊", "📦", "🆔", "📝", "🔗"
+    else:
+        metric_e, pack_e, id_e, tip_e, link_e = "📡", "📦", "🆔", "📝", "🔗"
+
     parts = [
         *flags,
         f"<b>{vuln.title}</b>",
         "",
-        f"🎯 score <b>{vuln.alert_score:.0f}</b> · CVSS <b>{_fmt_score(vuln)}</b> · "
-        f"{_tier_label(vuln)} · blast <b>{vuln.blast_radius}</b>",
-        f"📦 {matched}",
-        f"🆔 {cves}",
+        f"{metric_e} score <b>{vuln.alert_score:.0f}</b> · CVSS <b>{_fmt_score(vuln)}</b> · "
+        f"{_tier_label(vuln)} · blast <b>{vuln.blast_radius}</b> {blast_emoji(vuln.blast_radius)}",
+        f"{pack_e} {matched}",
+        f"{id_e} {cves}",
     ]
     if impact:
-        parts.append(f"💡 <i>{impact[:280]}</i>")
+        parts.append(f"{tip_e} <i>{impact[:280]}</i>")
     if vuln.url:
-        parts.append(f"🔗 {vuln.url}")
+        parts.append(f"{link_e} {vuln.url}")
     parts.append(f"<code>{vuln.thread_key}</code>")
     text = "\n".join(parts)
     return text if len(text) <= 1000 else text[:970] + "\n…"
@@ -83,8 +124,9 @@ def format_digest(items: Sequence[Vulnerability], title: str = "daily digest") -
         if not v.version_applicable:
             marks.append("n/a")
         tag = f" · {'/'.join(marks)}" if marks else ""
+        em = score_emoji(float(v.alert_score or 0))
         lines.append(
-            f"<b>{v.alert_score:5.1f}</b>  "
+            f"{em} <b>{v.alert_score:5.1f}</b>  "
             f"<code>{(v.severity_tier or '?')[:4].upper():4}</code>  "
             f"{v.title[:70]}{tag}"
         )
@@ -183,11 +225,46 @@ class TelegramNotifier:
             log.exception("Telegram photo send failed (channel=%s)", channel)
             return False
 
+    def send_document(
+        self,
+        png: bytes,
+        caption: str,
+        *,
+        channel: str = "critical",
+    ) -> bool:
+        """Lossless PNG delivery (no Telegram photo recompression)."""
+        if not self.enabled:
+            return False
+        chat_id = self._chat_for(channel)
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendDocument"
+        cap = caption if len(caption) <= 1024 else caption[:1000] + "\n…"
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                resp = client.post(
+                    url,
+                    data={
+                        "chat_id": chat_id,
+                        "caption": cap,
+                        "parse_mode": "HTML",
+                    },
+                    files={"document": ("sentinelwatch-brief.png", png, "image/png")},
+                )
+                resp.raise_for_status()
+            return True
+        except Exception:
+            log.exception("Telegram document send failed (channel=%s)", channel)
+            return False
+
     def send_alert(self, vuln: Vulnerability) -> bool:
         channel = vuln.channel or "critical"
         caption = format_alert_caption(vuln)
         png = render_alert_card(vuln)
-        if png and self.send_photo(png, caption, channel=channel):
+        if not png:
+            return self.send(format_alert(vuln), channel=channel)
+        # Document first = full 2560×1440 sharpness; photo fallback for clients that prefer inline
+        if self.send_document(png, caption, channel=channel):
+            return True
+        if self.send_photo(png, caption, channel=channel):
             return True
         return self.send(format_alert(vuln), channel=channel)
 
@@ -200,9 +277,12 @@ class TelegramNotifier:
     ) -> bool:
         text = format_digest(items, title=title)
         png = render_digest_card(list(items), title=title)
+        if png and self.send_document(png, text[:900], channel=channel):
+            if len(items) > 8:
+                self.send(text, channel=channel)
+            return True
         if png and self.send_photo(png, text[:900], channel=channel):
-            # Also send full text if truncated visually
-            if len(items) > 9:
+            if len(items) > 8:
                 self.send(text, channel=channel)
             return True
         return self.send(text, channel=channel)
