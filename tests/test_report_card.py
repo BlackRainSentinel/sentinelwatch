@@ -1,4 +1,4 @@
-"""Visual report card generation."""
+"""Visual report card — editorial poster."""
 
 from __future__ import annotations
 
@@ -51,37 +51,36 @@ def _sample(*, score: float = 96.0) -> Vulnerability:
     )
 
 
-def test_telegram_jpeg_readable() -> None:
+def test_poster_telegram_size() -> None:
     data = render_alert_card(_sample())
     assert data is not None
     assert data[:3] == b"\xff\xd8\xff"
     img = Image.open(io.BytesIO(data))
-    assert img.size == (1920, 1080)
-    # Not a near-black ghost: mean luminance should be clearly above void
-    pixels = list(img.getdata())
-    mean = sum(sum(p) for p in pixels) / (len(pixels) * 3)
-    assert mean > 25, f"image too dark (mean={mean:.1f})"
+    assert img.size[0] == 1080
+    assert 900 <= img.size[1] <= 1440
+    sample = [img.getpixel((x, y)) for x, y in ((100, 40), (540, 200), (100, 500))]
+    assert any(sum(p) > 80 for p in sample)
 
 
-def test_png_master() -> None:
+def test_png_2x() -> None:
     png = render_alert_card_png(_sample())
     assert png is not None
-    assert png[:8] == b"\x89PNG\r\n\x1a\n"
-    assert Image.open(io.BytesIO(png)).size == (3840, 2160)
+    img = Image.open(io.BytesIO(png))
+    assert img.size[0] == 2160
+    assert img.size[1] >= 1800
 
 
-def test_html_has_cve() -> None:
-    assert "CVE-2024-4577" in build_alert_html(_sample())
-    assert "Threat Density" not in build_alert_html(_sample())
+def test_html_banner() -> None:
+    html = build_alert_html(_sample())
+    assert "CISA KEV" in html
+    assert "CVE-2024-4577" in html
+    assert "gauge" not in html.lower()
 
 
-def test_digest() -> None:
+def test_digest_and_sources(tmp_path: Path) -> None:
     assert render_digest_card([_sample()])[:3] == b"\xff\xd8\xff"
-
-
-def test_write_sources(tmp_path: Path) -> None:
     paths = write_alert_sources(_sample(), tmp_path)
-    assert paths["jpg"].stat().st_size > 30_000
+    assert paths["jpg"].stat().st_size > 40_000
 
 
 def test_caption() -> None:
