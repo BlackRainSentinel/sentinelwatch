@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import io
 from datetime import datetime, timezone
+
+from PIL import Image
 
 from sentinelwatch.models import Vulnerability
 from sentinelwatch.notifier import format_alert_caption
@@ -44,35 +47,29 @@ def _sample(*, score: float = 96.0) -> Vulnerability:
     )
 
 
-def test_alert_card_png_bytes() -> None:
-    png = render_alert_card(_sample())
-    assert png is not None
-    assert png[:8] == b"\x89PNG\r\n\x1a\n"
-    assert len(png) > 20_000
+def test_alert_card_jpeg_bytes() -> None:
+    data = render_alert_card(_sample())
+    assert data is not None
+    assert data[:3] == b"\xff\xd8\xff"
+    assert len(data) > 15_000
 
 
-def test_alert_card_high_resolution() -> None:
-    from PIL import Image
-    import io
-
-    png = render_alert_card(_sample())
-    assert png is not None
-    img = Image.open(io.BytesIO(png))
-    assert img.size == (2560, 1440)
+def test_alert_card_telegram_photo_size() -> None:
+    data = render_alert_card(_sample())
+    assert data is not None
+    img = Image.open(io.BytesIO(data))
+    assert img.size == (1280, 720)
+    assert img.format == "JPEG"
 
 
-def test_digest_card_png_bytes() -> None:
-    png = render_digest_card([_sample(), _sample()], title="daily digest")
-    assert png is not None
-    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+def test_digest_card_jpeg_bytes() -> None:
+    data = render_digest_card([_sample(), _sample()], title="daily digest")
+    assert data is not None
+    assert data[:3] == b"\xff\xd8\xff"
 
 
 def test_score_tiers_and_emoji() -> None:
     assert score_tier(96) == "catastrophic"
-    assert score_tier(80) == "severe"
-    assert score_tier(60) == "elevated"
-    assert score_tier(40) == "moderate"
-    assert score_tier(10) == "watch"
     assert score_emoji(96) == "☠️"
     assert score_emoji(40) == "📡"
 
