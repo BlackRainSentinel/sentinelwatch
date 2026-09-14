@@ -1,409 +1,54 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>SentinelWatch Threat Briefing</title>
-  <style>
-    /* Logical canvas: 1920×1080. Capture at 2× → 3840×2160 PNG. */
-    :root {
-      --bg: #0b1220;
-      --panel: #121b2c;
-      --card: #182335;
-      --card-border: #2a3a52;
-      --ink: #f2f5f8;
-      --muted: #8b9bb0;
-      --label: #a8b6c8;
-      --teal: #1ec8b8;
-      --teal-dim: #0e7a72;
-      --crimson: #e83948;
-      --amber: #f0b429;
-      --green: #3dca8e;
-      --rail: var(--sev, #e83948);
-      --pad: 48px;
-      --radius: 16px;
-      --font: "Noto Sans", "DejaVu Sans", "Liberation Sans", system-ui, sans-serif;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    html, body {
-      width: 1920px;
-      height: 1080px;
-      overflow: hidden;
-      background: var(--bg);
-      color: var(--ink);
-      font-family: var(--font);
-      -webkit-font-smoothing: antialiased;
-    }
-
-    .frame {
-      width: 1920px;
-      height: 1080px;
-      padding: 40px 44px 36px 44px;
-      display: flex;
-      flex-direction: column;
-      gap: 28px;
-      background:
-        linear-gradient(180deg, #0e1626 0%, var(--bg) 45%, #0a101c 100%);
-      border-left: 10px solid var(--rail);
-    }
-
-    /* ── Header ───────────────────────────────────────── */
-    .header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 32px;
-      flex-shrink: 0;
-    }
-
-    .brand-block { min-width: 0; }
-
-    .brand {
-      font-size: 28px;
-      font-weight: 700;
-      letter-spacing: 0.12em;
-      color: var(--teal);
-      line-height: 1.1;
-    }
-
-    .briefing-label {
-      margin-top: 8px;
-      font-size: 20px;
-      font-weight: 500;
-      color: var(--muted);
-      letter-spacing: 0.04em;
-    }
-
-    .status-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      justify-content: flex-end;
-      align-items: center;
-    }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      height: 40px;
-      padding: 0 18px;
-      border-radius: 999px;
-      font-size: 16px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      white-space: nowrap;
-    }
-
-    .pill-kev { background: var(--crimson); color: #14080a; }
-    .pill-hosting { background: var(--amber); color: #1a1200; }
-    .pill-sev {
-      background: transparent;
-      color: var(--crimson);
-      border: 2px solid var(--crimson);
-    }
-    .pill-sev[data-sev="high"] { color: var(--amber); border-color: var(--amber); }
-    .pill-sev[data-sev="medium"] { color: #5aa8ff; border-color: #5aa8ff; }
-    .pill-sev[data-sev="low"] { color: var(--green); border-color: var(--green); }
-
-    /* ── Body grid ────────────────────────────────────── */
-    .body {
-      flex: 1;
-      min-height: 0;
-      display: grid;
-      grid-template-columns: 340px 1fr;
-      gap: 28px;
-    }
-
-    .severity-panel {
-      background: var(--panel);
-      border: 1px solid var(--card-border);
-      border-radius: var(--radius);
-      padding: 28px 24px 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 22px;
-    }
-
-    .sev-kicker {
-      font-size: 18px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--label);
-    }
-
-    .score-row {
-      display: flex;
-      align-items: center;
-      gap: 20px;
-    }
-
-    .score-ring {
-      width: 120px;
-      height: 120px;
-      flex-shrink: 0;
-    }
-
-    .score-ring svg { width: 120px; height: 120px; display: block; }
-
-    .score-number {
-      font-size: 72px;
-      font-weight: 700;
-      line-height: 0.95;
-      letter-spacing: -0.02em;
-      color: var(--ink);
-    }
-
-    .score-denom {
-      font-size: 22px;
-      font-weight: 600;
-      color: var(--muted);
-      margin-top: 4px;
-    }
-
-    .score-caption {
-      font-size: 18px;
-      font-weight: 600;
-      color: var(--crimson);
-      margin-top: 8px;
-      letter-spacing: 0.02em;
-    }
-    .score-caption[data-sev="high"] { color: var(--amber); }
-    .score-caption[data-sev="medium"] { color: #5aa8ff; }
-    .score-caption[data-sev="low"] { color: var(--green); }
-
-    .cvss-box {
-      margin-top: auto;
-      background: var(--card);
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 18px 20px;
-    }
-
-    .cvss-label {
-      font-size: 16px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .cvss-value {
-      margin-top: 6px;
-      font-size: 40px;
-      font-weight: 700;
-      color: var(--ink);
-      line-height: 1;
-    }
-
-    .cvss-note {
-      margin-top: 8px;
-      font-size: 16px;
-      color: var(--muted);
-      line-height: 1.35;
-    }
-
-    .main {
-      display: flex;
-      flex-direction: column;
-      gap: 22px;
-      min-width: 0;
-    }
-
-    .headline {
-      font-size: 52px;
-      font-weight: 700;
-      line-height: 1.15;
-      letter-spacing: -0.02em;
-      color: var(--ink);
-      max-width: 100%;
-    }
-
-    .summary {
-      font-size: 26px;
-      font-weight: 400;
-      line-height: 1.4;
-      color: var(--label);
-      max-width: 58ch;
-    }
-
-    .facts {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-    }
-
-    .fact {
-      background: var(--card);
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 18px 20px 20px;
-      min-height: 118px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .fact-label {
-      font-size: 15px;
-      font-weight: 700;
-      letter-spacing: 0.07em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .fact-value {
-      font-size: 24px;
-      font-weight: 700;
-      line-height: 1.25;
-      color: var(--ink);
-      word-break: break-word;
-    }
-
-    .fact-value.mono {
-      font-family: "DejaVu Sans Mono", "Noto Sans Mono", ui-monospace, monospace;
-      font-size: 22px;
-      font-weight: 600;
-      color: var(--teal);
-    }
-
-    .fact-value.cve {
-      color: var(--amber);
-      font-family: "DejaVu Sans Mono", "Noto Sans Mono", ui-monospace, monospace;
-      font-size: 22px;
-      font-weight: 700;
-    }
-
-    .fact-value.ok { color: var(--green); }
-    .fact-value.warn { color: var(--amber); }
-
-    .impact {
-      flex: 1;
-      background: var(--panel);
-      border: 1px solid var(--card-border);
-      border-left: 6px solid var(--teal);
-      border-radius: var(--radius);
-      padding: 28px 32px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      min-height: 200px;
-    }
-
-    .impact-label {
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--teal);
-    }
-
-    .impact-text {
-      font-size: 26px;
-      font-weight: 400;
-      line-height: 1.45;
-      color: var(--ink);
-      max-width: 62ch;
-    }
-
-    /* ── Footer ───────────────────────────────────────── */
-    .footer {
-      flex-shrink: 0;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 24px;
-      padding-top: 8px;
-      border-top: 1px solid var(--card-border);
-      font-size: 16px;
-      color: var(--muted);
-    }
-
-    .footer strong {
-      color: var(--teal-dim);
-      font-weight: 700;
-      letter-spacing: 0.06em;
-    }
-
-    .footer .src { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
-  </style>
-</head>
-<body>
-  <article class="frame" style="--sev: #e83948;">
-    <header class="header">
-      <div class="brand-block">
-        <div class="brand">SENTINELWATCH</div>
-        <div class="briefing-label">Hosting Threat Briefing</div>
+<html lang="en"><head><meta charset="utf-8"/>
+<title>SentinelWatch Briefing</title>
+<style>
+  body{margin:0;background:#080a0e;color:#fafcff;font-family:"Noto Sans",system-ui,sans-serif}
+  .poster{width:1080px;min-height:1440px;margin:0 auto;padding:0 0 48px;box-sizing:border-box}
+  .strip{background:#ff3440;color:#0c080a;text-align:center;font-weight:700;font-size:26px;padding:22px}
+  .pad{padding:40px 56px}
+  .brand{color:#00d2be;font-weight:700;letter-spacing:.08em;font-size:22px}
+  .kicker{color:#8c96a5;font-size:18px;font-weight:700;margin-top:8px}
+  .score{font-size:140px;font-weight:700;line-height:1;margin:24px 0 0}
+  .cvss{font-size:56px;font-weight:700}
+  .muted{color:#8c96a5}
+  h1{font-size:54px;line-height:1.15;margin:28px 0 12px;font-weight:700}
+  .sum{font-size:28px;color:#8c96a5;line-height:1.35}
+  .row{margin:18px 0}
+  .row .l{font-size:16px;font-weight:700;color:#8c96a5;letter-spacing:.06em}
+  .row .v{font-size:26px;font-weight:700;margin-top:6px;font-family:ui-monospace,monospace}
+  .impact{border-left:8px solid #00d2be;padding-left:24px;margin-top:28px}
+  .impact h2{color:#00d2be;font-size:16px;letter-spacing:.08em}
+  .impact p{font-size:26px;line-height:1.4}
+  footer{margin-top:48px;color:#8c96a5;font-size:16px;display:flex;justify-content:space-between}
+</style></head><body>
+<article class="poster">
+  <div class="strip">CRITICAL  ·  CISA KEV — ACTIVELY EXPLOITED</div>
+  <div class="pad">
+    <div class="brand">SENTINELWATCH</div>
+    <div class="kicker">HOSTING THREAT BRIEFING</div>
+    <div style="display:flex;gap:48px;align-items:flex-end">
+      <div>
+        <div class="muted" style="font-size:18px;font-weight:700">SENTINEL SCORE</div>
+        <div class="score">96</div>
       </div>
-      <div class="status-row">
-        <span class="pill pill-kev">CISA KEV · actively exploited</span>
-<span class="pill pill-sev" data-sev="critical">Critical</span>
+      <div>
+        <div class="muted" style="font-size:18px;font-weight:700">CVSS</div>
+        <div class="cvss">9.8</div>
+        <div class="muted" style="font-size:16px">industry · separate</div>
       </div>
-    </header>
-
-    <div class="body">
-      <aside class="severity-panel">
-        <div class="sev-kicker">Sentinel score</div>
-        <div class="score-row">
-          <div class="score-ring" aria-hidden="true">
-            <svg viewBox="0 0 120 120" role="img">
-              <circle cx="60" cy="60" r="48" fill="none" stroke="#2a3a52" stroke-width="10"/>
-              <circle cx="60" cy="60" r="48" fill="none"
-                stroke="#e83948" stroke-width="10"
-                stroke-linecap="round"
-                stroke-dasharray="289.53 301.59"
-                transform="rotate(-90 60 60)"/>
-            </svg>
-          </div>
-          <div>
-            <div class="score-number">96</div>
-            <div class="score-denom">out of 100</div>
-            <div class="score-caption" data-sev="critical">Critical</div>
-          </div>
-        </div>
-        <div class="cvss-box">
-          <div class="cvss-label">CVSS (vendor / NVD)</div>
-          <div class="cvss-value">9.8</div>
-          <div class="cvss-note">Industry severity score — separate from Sentinel score</div>
-        </div>
-      </aside>
-
-      <section class="main">
-        <h1 class="headline">PHP-CGI Argument Injection</h1>
-        <p class="summary">remote code execution on shared hosts</p>
-
-        <div class="facts">
-          <div class="fact">
-            <div class="fact-label">Affected stack</div>
-            <div class="fact-value mono">php:php</div>
-          </div>
-          <div class="fact">
-            <div class="fact-label">CVE / Advisory</div>
-            <div class="fact-value cve">CVE-2024-4577</div>
-          </div>
-          <div class="fact">
-            <div class="fact-label">CVSS</div>
-            <div class="fact-value">9.8</div>
-          </div>
-          <div class="fact">
-            <div class="fact-label">Fleet match</div>
-            <div class="fact-value ok">Matches your fleet</div>
-          </div>
-        </div>
-
-        <div class="impact">
-          <div class="impact-label">Operator impact</div>
-          <p class="impact-text">PHP-FPM pools serve many tenants. Map ea-php*/alt-php* before dismissing.</p>
-        </div>
-      </section>
     </div>
-
-    <footer class="footer">
-      <div class="src">Source: cisa_kev (official source) · https://nvd.nist.gov/vuln/detail/CVE-2024-4577</div>
-      <div>2026-09-14 12:12 UTC</div>
-      <div><strong>BLACKRAINSENTINEL</strong></div>
+    <hr style="border:none;height:3px;background:#ff3440;margin:28px 0"/>
+    <h1>PHP-CGI Argument Injection</h1>
+    <p class="sum">remote code execution on shared hosts</p>
+    <div class="row"><div class="l">AFFECTED STACK</div><div class="v" style="color:#00d2be">php:php</div></div>
+    <div class="row"><div class="l">CVE / ADVISORY</div><div class="v" style="color:#ffb428">CVE-2024-4577</div></div>
+    <div class="row"><div class="l">BLAST RADIUS</div><div class="v" style="color:#ff3440">CRITICAL</div></div>
+    <div class="row"><div class="l">FLEET MATCH</div><div class="v">Yes — matches fleet</div></div>
+    <div class="impact"><h2>OPERATOR IMPACT</h2><p>PHP-FPM pools serve many tenants. Map ea-php*/alt-php* before dismissing.</p></div>
+    <footer>
+      <span>2026-09-14 12:21 UTC</span>
+      <span style="color:#00d2be;font-weight:700">BLACKRAINSENTINEL</span>
     </footer>
-  </article>
-</body>
-</html>
+  </div>
+</article>
+</body></html>
