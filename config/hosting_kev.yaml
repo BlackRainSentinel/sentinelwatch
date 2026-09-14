@@ -1,0 +1,12 @@
+# Curated "hosting KEV" — CVEs actively abused or especially dangerous
+# on shared hosting / control-panel stacks. Complements CISA KEV.
+# Anyone can PR additions; this is part of the public methodology.
+
+cves:
+  # PHP CGI argument injection (widely mass-scanned on shared hosts)
+  - CVE-2024-4577
+  # Exim historical worm-class (example entries — keep current)
+  - CVE-2019-15846
+  - CVE-2019-16928
+  # cPanel / related high-impact (add as confirmed)
+  # - CVE-YYYY-NNNN

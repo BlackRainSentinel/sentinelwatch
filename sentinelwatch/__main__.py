@@ -1,4 +1,4 @@
-"""CLI entrypoint: python -m sentinelwatch"""
+"""CLI entrypoint: python -m sentinelwatch [--schedule fast|slow]"""
 
 from __future__ import annotations
 
@@ -21,42 +21,28 @@ def _setup_logging(verbose: bool) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="sentinelwatch",
-        description="Self-hosted vulnerability monitoring for shared hosting stacks",
-    )
+    parser = argparse.ArgumentParser(prog="sentinelwatch")
+    parser.add_argument("-c", "--config", type=Path, default=None)
+    parser.add_argument("--env", type=Path, default=None)
     parser.add_argument(
-        "-c",
-        "--config",
-        type=Path,
-        default=None,
-        help="Path to config.yaml (default: config/config.yaml or $SENTINELWATCH_CONFIG)",
+        "--schedule",
+        choices=["fast", "slow", "all"],
+        default="all",
+        help="Run only fast (Tier1/2) or slow (tier3) collectors",
     )
-    parser.add_argument(
-        "--env",
-        type=Path,
-        default=None,
-        help="Path to .env file",
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Debug logging",
-    )
+    parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
     _setup_logging(args.verbose)
     load_env(args.env)
-
     try:
         config = load_config(args.config)
     except FileNotFoundError as exc:
         logging.error("%s", exc)
         return 2
 
-    stats = run(config)
-    # Non-zero only if every collector failed and nothing was fetched
+    schedule = None if args.schedule == "all" else args.schedule
+    stats = run(config, schedule=schedule)
     if stats["collectors"] > 0 and stats["failures"] == stats["collectors"]:
         return 1
     return 0

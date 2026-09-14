@@ -35,3 +35,6 @@ htmlcov/
 *.swp
 *~
 .DS_Store
+
+# Local archives
+*.zip

@@ -1,218 +1,294 @@
-# SentinelWatch configuration
+# SentinelWatch v3 configuration
 # Secrets stay in .env — never put tokens here.
 
 database:
   path: data/sentinelwatch.db
 
-# Software actually running in your fleet (static allowlist for v1).
-# fleet_match is true when a finding mentions any of these tokens.
-fleet_software:
-  - cpanel
-  - whm
-  - directadmin
-  - litespeed
-  - openlitespeed
-  - apache
-  - httpd
-  - exim
-  - almalinux
-  - cloudlinux
-  - ubuntu
-  - mariadb
-  - mysql
-  - openssl
-  - php
-  - wordpress
+fleet_versions_path: config/fleet_versions.yaml
+hosting_kev_path: config/hosting_kev.yaml
 
 delivery:
-  # Email when cvss_score >= this OR fleet_match is true
   email_cvss_threshold: 9.0
-  # MUST match one of the systemd timer run hours (UTC), else digest never fires.
-  # Default timer: 04:00 and 16:00 UTC → use 4 or 16.
+  # MUST match a digest timer hour (UTC). Default digest timer: 04:00.
   digest_hour_utc: 4
+  notify_collector_failures: true
+  empty_success_streak_alert: 3
+  fail_streak_alert: 2
+  immediate_min_score: 55
+  # Alert if no successful pipeline finish within this many hours
+  heartbeat_max_hours: 14
+
+# Optional extra taxonomy entries (merged over the built-in product list).
+# taxonomy_extra:
+#   - id: vendor:product
+#     vendor: vendor
+#     product: product
+#     category: other
+#     aliases: [alias one, alias-two]
+#     cpe_pairs: [[vendor, product]]
 
 # ---------------------------------------------------------------------------
 # Sources
-# type: feed | nvd | wordfence | github_advisories
-# Set enabled: false to pause a source without deleting it.
+# type: kev | nvd | feed | html | wordfence | github_advisories
+# source_tier: 1=official/gov  2=research  3=aggregator
 # ---------------------------------------------------------------------------
 sources:
 
-  # --- Cross-cutting APIs --------------------------------------------------
+  # --- Tier 1: official / government --------------------------------------
+
+  - name: cisa_kev
+    type: kev
+    enabled: true
+    source_tier: 1
+    # Primary may 403 from some hosts; collector falls back to GitHub mirror.
+    url: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+    mirror_url: https://raw.githubusercontent.com/cisagov/kev-data/develop/known_exploited_vulnerabilities.json
 
   - name: nvd
     type: nvd
     enabled: true
+    source_tier: 1
+    schedule: fast
     lookback_days: 14
     results_per_page: 50
+    use_cpe: true
+    # Small keyword supplement for products with weak CPE coverage
     keywords:
-      - cpanel
-      - whm
+      - Imunify360
+      - JetBackup
+      - ConfigServer
+      - cPanel
       - DirectAdmin
-      - LiteSpeed
-      - Apache HTTP Server
-      - httpd
-      - Exim
-      - AlmaLinux
-      - CloudLinux
-      - Ubuntu
-      - MariaDB
-      - OpenSSL
-      - PHP
-      - WordPress
-
-  - name: wordfence
-    type: wordfence
-    enabled: true
-    max_items: 200
-
-  - name: github_advisories
-    type: github_advisories
-    enabled: true
-    ecosystems:
-      - composer
-      - npm
-    per_page: 50
-    max_pages: 2
-
-  # --- cPanel / WHM --------------------------------------------------------
 
   - name: cpanel_release_notes
     type: feed
     enabled: true
+    source_tier: 1
     url: https://docs.cpanel.net/release-notes/release-notes/index.xml
-    default_products: [cpanel, whm]
-    # Release notes are noisy; keep security-ish entries when possible
-    include_keywords:
-      - security
-      - cve
-      - vulnerab
-      - exploit
-      - privilege
-      - xss
-      - injection
+    default_products: [cpanel:cpanel]
+    include_keywords: [security, cve, vulnerab, exploit, privilege, xss, injection]
 
   - name: cpanel_security_news
     type: feed
     enabled: true
+    source_tier: 1
     url: https://news.cpanel.com/category/security-2/feed/
-    default_products: [cpanel, whm]
+    default_products: [cpanel:cpanel]
 
-  # --- DirectAdmin ---------------------------------------------------------
-  # No confirmed official RSS as of writing; forum/changelog may gain one later.
-  # DirectAdmin CVEs still arrive via the NVD keyword collector.
-
-  # --- LiteSpeed -----------------------------------------------------------
-
-  - name: litespeed_blog
-    type: feed
+  - name: apache_httpd_security
+    type: html
     enabled: true
-    url: https://blog.litespeedtech.com/feed/
-    default_products: [litespeed]
-    include_keywords:
-      - security
-      - cve
-      - vulnerab
-      - advisory
-      - patch
-      - exploit
+    source_tier: 1
+    url: https://httpd.apache.org/security/vulnerabilities_24.html
+    default_products: [apache:http_server]
+    mode: cve_page
 
-  # --- Apache HTTPD --------------------------------------------------------
-  # Primary coverage via NVD keywords; announce list has no stable public RSS.
-
-  # --- Exim ----------------------------------------------------------------
-  # GitHub security advisories for Exim are covered by NVD + GHSA ecosystem
-  # scans; announce list is HTML-only for now.
-
-  # --- AlmaLinux -----------------------------------------------------------
+  - name: exim_security
+    type: html
+    enabled: true
+    source_tier: 1
+    url: https://exim.org/static/doc/security/
+    default_products: [exim:exim]
+    mode: cve_page
 
   - name: almalinux_8_errata
     type: feed
     enabled: true
+    source_tier: 1
     url: https://errata.almalinux.org/8/errata.rss
-    default_products: [almalinux]
-    include_keywords:
-      - Important
-      - Critical
-      - Moderate
-      - security
-      - CVE
+    default_products: [almalinux:almalinux]
+    include_keywords: [Important, Critical, Moderate, security, CVE]
 
   - name: almalinux_9_errata
     type: feed
     enabled: true
+    source_tier: 1
     url: https://errata.almalinux.org/9/errata.rss
-    default_products: [almalinux]
-    include_keywords:
-      - Important
-      - Critical
-      - Moderate
-      - security
-      - CVE
-
-  # --- CloudLinux ----------------------------------------------------------
+    default_products: [almalinux:almalinux]
+    include_keywords: [Important, Critical, Moderate, security, CVE]
 
   - name: cloudlinux_blog
     type: feed
     enabled: true
+    source_tier: 1
     url: https://blog.cloudlinux.com/feed/
-    default_products: [cloudlinux]
-    include_keywords:
-      - security
-      - cve
-      - vulnerab
-      - advisory
-      - kernel
-      - lve
-      - cagefs
-      - imunify
+    default_products: [cloudlinux:cloudlinux]
+    include_keywords: [security, cve, vulnerab, advisory, kernel, lve, cagefs, imunify]
 
-  - name: cloudlinux_status
+  - name: imunify360_blog
     type: feed
     enabled: true
-    url: https://cloudlinux.statuspage.io/history.rss
-    default_products: [cloudlinux]
-
-  # --- Ubuntu --------------------------------------------------------------
+    source_tier: 1
+    url: https://blog.imunify360.com/feed/
+    default_products: [cloudlinux:imunify360]
+    include_keywords: [security, cve, vulnerab, advisory, patch, release]
 
   - name: ubuntu_usn
     type: feed
     enabled: true
+    source_tier: 1
     url: https://ubuntu.com/security/notices/rss.xml
-    default_products: [ubuntu]
-    # Optional: tighten to stack packages you care about
-    # include_keywords: [openssl, php, apache, mariadb, mysql, exim]
+    default_products: [canonical:ubuntu_linux]
 
-  # --- MariaDB / OpenSSL / PHP ---------------------------------------------
-  # Covered primarily by NVD keywords; add vendor feeds here when available.
+  - name: debian_dsa
+    type: html
+    enabled: true
+    source_tier: 1
+    url: https://salsa.debian.org/security-tracker-team/security-tracker/-/raw/master/data/DSA/list
+    default_products: [debian:debian_linux]
+    mode: debian_dsa
+    max_items: 60
+    # Hosting-relevant packages only (noise control while keeping Tier-1 recall)
+    include_keywords:
+      - openssl
+      - php
+      - apache2
+      - mariadb
+      - mysql
+      - exim
+      - dovecot
+      - bind9
+      - clamav
+      - spamassassin
+      - glibc
+      - linux
 
-  # --- Cross-cutting lists -------------------------------------------------
+  - name: litespeed_blog
+    type: feed
+    enabled: true
+    source_tier: 1
+    url: https://blog.litespeedtech.com/feed/
+    default_products: [litespeed:litespeed]
+    include_keywords: [security, cve, vulnerab, advisory, patch, exploit]
+
+  - name: clamav_blog
+    type: feed
+    enabled: true
+    source_tier: 1
+    url: https://blog.clamav.net/feeds/posts/default?alt=rss
+    default_products: [cisco:clamav]
+    include_keywords: [security, cve, vulnerab, advisory, release]
+
+  - name: dovecot_news
+    type: feed
+    enabled: true
+    source_tier: 1
+    # Pipermail archive is HTML; feedparser often still extracts entries.
+    url: https://dovecot.org/pipermail/dovecot-news/
+    default_products: [dovecot:dovecot]
+    include_keywords: [security, cve, vulnerab, released]
+
+  - name: spamassassin_news
+    type: feed
+    enabled: true
+    source_tier: 1
+    url: https://spamassassin.apache.org/news.rss
+    default_products: [apache:spamassassin]
+
+  - name: powerdns_advisories
+    type: html
+    enabled: true
+    source_tier: 1
+    url: https://doc.powerdns.com/authoritative/security-advisories/
+    default_products: [powerdns:powerdns]
+    mode: cve_page
+
+  - name: mariadb_security
+    type: html
+    enabled: true
+    source_tier: 1
+    url: https://mariadb.com/kb/en/security/
+    default_products: [mariadb:mariadb]
+    mode: cve_page
+
+  # DirectAdmin / CSF / Pure-FTPd / JetBackup / ISC BIND — changelog collectors
+  - name: directadmin
+    type: changelog
+    vendor: directadmin
+    enabled: true
+    source_tier: 1
+    schedule: fast
+
+  - name: csf
+    type: changelog
+    vendor: csf
+    enabled: true
+    source_tier: 1
+    schedule: fast
+
+  - name: pureftpd
+    type: changelog
+    vendor: pureftpd
+    enabled: true
+    source_tier: 1
+    schedule: fast
+
+  - name: jetbackup
+    type: changelog
+    vendor: jetbackup
+    enabled: true
+    source_tier: 1
+    schedule: fast
+
+  - name: isc_bind
+    type: changelog
+    vendor: bind
+    enabled: true
+    source_tier: 1
+    schedule: fast
+
+  # --- Tier 2: research ---------------------------------------------------
 
   - name: seclists_oss_sec
     type: feed
     enabled: true
+    source_tier: 2
     url: https://seclists.org/rss/oss-sec.rss
     default_products: []
     include_keywords:
       - cpanel
-      - whm
       - directadmin
       - litespeed
       - apache
       - httpd
       - exim
-      - almalinux
-      - cloudlinux
-      - ubuntu
+      - dovecot
       - mariadb
+      - mysql
       - openssl
       - php
       - wordpress
+      - clamav
+      - bind
+      - powerdns
+      - cloudlinux
+      - almalinux
+      - imunify
 
-  # --- WordPress (extra RSS; Wordfence JSON API is the main WP source) -----
+  - name: github_advisories
+    type: github_advisories
+    enabled: true
+    source_tier: 2
+    ecosystems: [composer]
+    per_page: 50
+    max_pages: 2
+    include_keywords:
+      - wordpress
+      - woocommerce
+      - php
+      - apache
+      - mariadb
+      - mysql
+      - openssl
+      - clamav
 
-  - name: wordfence_rss
-    type: feed
-    enabled: false
-    url: https://www.wordfence.com/threat-intel/vulnerabilities/rss
-    default_products: [wordpress]
+  # --- Tier 3: aggregators ------------------------------------------------
+
+  - name: wordfence
+    type: wordfence
+    enabled: true
+    source_tier: 3
+    schedule: slow
+    # Requires WORDFENCE_API_KEY in .env (v2 API is dead)
+    url: https://www.wordfence.com/api/intelligence/v3/vulnerabilities/production
+    max_items: 200

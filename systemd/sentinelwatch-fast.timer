@@ -1,0 +1,13 @@
+[Unit]
+Description=SentinelWatch fast timer — every 2 hours
+Documentation=https://github.com/BlackRainSentinel/sentinelwatch
+
+[Timer]
+OnCalendar=*-*-* 00/2:00:00
+Persistent=true
+RandomizedDelaySec=180
+AccuracySec=1min
+Unit=sentinelwatch-fast.service
+
+[Install]
+WantedBy=timers.target

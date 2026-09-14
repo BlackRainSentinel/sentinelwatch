@@ -1,5 +1,5 @@
 [Unit]
-Description=SentinelWatch full oneshot (compat)
+Description=SentinelWatch slow schedule (Tier 3 / Wordfence)
 After=network-online.target
 Wants=network-online.target
 
@@ -10,8 +10,8 @@ Group=sentinelwatch
 WorkingDirectory=/opt/sentinelwatch
 EnvironmentFile=-/opt/sentinelwatch/.env
 Environment=SENTINELWATCH_CONFIG=/opt/sentinelwatch/config/config.yaml
-ExecStart=/opt/sentinelwatch/.venv/bin/python -m sentinelwatch --schedule all
-Nice=10
+ExecStart=/opt/sentinelwatch/.venv/bin/python -m sentinelwatch --schedule slow
+Nice=15
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

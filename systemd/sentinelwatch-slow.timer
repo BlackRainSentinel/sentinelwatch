@@ -1,11 +1,11 @@
 [Unit]
-Description=SentinelWatch digest-aligned full run (04:00/16:00 UTC)
+Description=SentinelWatch slow timer — every 12 hours
 
 [Timer]
 OnCalendar=*-*-* 04,16:00:00
 Persistent=true
 RandomizedDelaySec=300
-Unit=sentinelwatch.service
+Unit=sentinelwatch-slow.service
 
 [Install]
 WantedBy=timers.target
