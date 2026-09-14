@@ -1,4 +1,4 @@
-"""Telegram + email delivery with channels, scoring, impact notes."""
+"""Telegram + email delivery with visual report cards."""
 
 from __future__ import annotations
 
@@ -11,10 +11,11 @@ from typing import Sequence
 import httpx
 
 from sentinelwatch.models import Vulnerability
+from sentinelwatch.report_card import render_alert_card, render_digest_card
 
 log = logging.getLogger(__name__)
 
-_TIER_LABEL = {1: "T1-official", 2: "T2-research", 3: "T3-aggregator"}
+_TIER_LABEL = {1: "T1 · official", 2: "T2 · research", 3: "T3 · aggregator"}
 
 
 def _fmt_score(vuln: Vulnerability) -> str:
@@ -27,57 +28,70 @@ def _tier_label(vuln: Vulnerability) -> str:
     return _TIER_LABEL.get(int(vuln.source_tier or 3), f"T{vuln.source_tier}")
 
 
-def format_alert(vuln: Vulnerability) -> str:
-    flags = []
+def format_alert_caption(vuln: Vulnerability) -> str:
+    """Compact HTML caption under the visual card."""
+    flags: list[str] = []
     if vuln.in_kev:
-        flags.append("🚨 CISA KEV — ACTIVELY EXPLOITED")
+        flags.append("🚨 <b>CISA KEV — ACTIVELY EXPLOITED</b>")
     if vuln.in_hosting_kev:
-        flags.append("🔥 HOSTING-KEV")
-    if vuln.always_alert and not vuln.in_kev:
-        flags.append("⚡ always-alert")
+        flags.append("🔥 <b>HOSTING-KEV</b>")
     if not vuln.version_applicable:
         flags.append("⏭ not in your fleet versions")
-    head = ("\n".join(f"<b>{f}</b>" for f in flags) + "\n") if flags else ""
 
-    matched = ", ".join(vuln.matched_products) if vuln.matched_products else "—"
-    cves = ", ".join(vuln.cve_ids) if vuln.cve_ids else "—"
-    impact = f"\n💡 {vuln.impact_note}" if vuln.impact_note else ""
-    return (
-        f"{head}"
-        f"<b>[{vuln.severity_tier.upper()}]</b> score={vuln.alert_score:.0f} "
-        f"blast={vuln.blast_radius}\n"
-        f"{vuln.title}\n"
-        f"source: <code>{vuln.source}</code> · {_tier_label(vuln)} · {vuln.category}\n"
-        f"CVSS: {_fmt_score(vuln)} · applicable: "
-        f"{'yes' if vuln.version_applicable else 'no'}"
-        f"{' (ver unknown)' if vuln.version_unknown else ''}\n"
-        f"matched: {matched}\n"
-        f"CVE: {cves}\n"
-        f"thread: <code>{vuln.thread_key}</code>\n"
-        f"{vuln.url}"
-        f"{impact}"
-    )
+    matched = ", ".join(f"<code>{p}</code>" for p in (vuln.matched_products or [])[:4]) or "—"
+    cves = ", ".join(f"<code>{c}</code>" for c in (vuln.cve_ids or [])[:4]) or "—"
+    impact = vuln.impact_note.strip() if vuln.impact_note else ""
+
+    parts = [
+        *flags,
+        f"<b>{vuln.title}</b>",
+        "",
+        f"🎯 score <b>{vuln.alert_score:.0f}</b> · CVSS <b>{_fmt_score(vuln)}</b> · "
+        f"{_tier_label(vuln)} · blast <b>{vuln.blast_radius}</b>",
+        f"📦 {matched}",
+        f"🆔 {cves}",
+    ]
+    if impact:
+        parts.append(f"💡 <i>{impact[:280]}</i>")
+    if vuln.url:
+        parts.append(f"🔗 {vuln.url}")
+    parts.append(f"<code>{vuln.thread_key}</code>")
+    text = "\n".join(parts)
+    return text if len(text) <= 1000 else text[:970] + "\n…"
+
+
+def format_alert(vuln: Vulnerability) -> str:
+    """Full text fallback when image send is unavailable."""
+    return format_alert_caption(vuln)
 
 
 def format_digest(items: Sequence[Vulnerability], title: str = "daily digest") -> str:
     if not items:
-        return f"SentinelWatch {title} — nothing new."
-    lines = [f"<b>SentinelWatch {title}</b> — {len(items)} item(s)\n"]
-    for v in items[:50]:
-        flags = []
+        return f"<b>SENTINELWATCH</b> · {title}\nnothing new."
+
+    lines = [
+        f"<b>SENTINELWATCH</b> · {title.upper()}",
+        f"{len(items)} findings · ranked by alert score",
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄",
+    ]
+    for v in items[:40]:
+        marks = []
         if v.in_kev:
-            flags.append("KEV")
+            marks.append("KEV")
         if v.in_hosting_kev:
-            flags.append("H-KEV")
+            marks.append("H-KEV")
         if not v.version_applicable:
-            flags.append("n/a-ver")
-        flag = f" [{','.join(flags)}]" if flags else ""
+            marks.append("n/a")
+        tag = f" · {'/'.join(marks)}" if marks else ""
         lines.append(
-            f"• [{v.alert_score:.0f}|{_fmt_score(v)}] {_tier_label(v)} "
-            f"{v.title}{flag}\n  {v.url}"
+            f"<b>{v.alert_score:5.1f}</b>  "
+            f"<code>{(v.severity_tier or '?')[:4].upper():4}</code>  "
+            f"{v.title[:70]}{tag}"
         )
-    if len(items) > 50:
-        lines.append(f"  …and {len(items) - 50} more")
+        if v.url:
+            lines.append(f"   {v.url}")
+    if len(items) > 40:
+        lines.append(f"… +{len(items) - 40} more")
     return "\n".join(lines)
 
 
@@ -89,7 +103,7 @@ class TelegramNotifier:
         *,
         critical_chat_id: str | None = None,
         wordpress_chat_id: str | None = None,
-        timeout: float = 30.0,
+        timeout: float = 45.0,
     ) -> None:
         self.bot_token = (bot_token or os.environ.get("TELEGRAM_BOT_TOKEN", "")).strip()
         self.chat_id = (chat_id or os.environ.get("TELEGRAM_CHAT_ID", "")).strip()
@@ -140,25 +154,70 @@ class TelegramNotifier:
             log.exception("Telegram send failed (channel=%s)", channel)
             return False
 
+    def send_photo(
+        self,
+        png: bytes,
+        caption: str,
+        *,
+        channel: str = "critical",
+    ) -> bool:
+        if not self.enabled:
+            return False
+        chat_id = self._chat_for(channel)
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendPhoto"
+        cap = caption if len(caption) <= 1024 else caption[:1000] + "\n…"
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                resp = client.post(
+                    url,
+                    data={
+                        "chat_id": chat_id,
+                        "caption": cap,
+                        "parse_mode": "HTML",
+                    },
+                    files={"photo": ("sentinelwatch.png", png, "image/png")},
+                )
+                resp.raise_for_status()
+            return True
+        except Exception:
+            log.exception("Telegram photo send failed (channel=%s)", channel)
+            return False
+
     def send_alert(self, vuln: Vulnerability) -> bool:
-        return self.send(format_alert(vuln), channel=vuln.channel or "critical")
+        channel = vuln.channel or "critical"
+        caption = format_alert_caption(vuln)
+        png = render_alert_card(vuln)
+        if png and self.send_photo(png, caption, channel=channel):
+            return True
+        return self.send(format_alert(vuln), channel=channel)
 
     def send_digest(
-        self, items: Sequence[Vulnerability], *, channel: str = "digest", title: str = "daily digest"
+        self,
+        items: Sequence[Vulnerability],
+        *,
+        channel: str = "digest",
+        title: str = "daily digest",
     ) -> bool:
-        return self.send(format_digest(items, title=title), channel=channel)
+        text = format_digest(items, title=title)
+        png = render_digest_card(list(items), title=title)
+        if png and self.send_photo(png, text[:900], channel=channel):
+            # Also send full text if truncated visually
+            if len(items) > 9:
+                self.send(text, channel=channel)
+            return True
+        return self.send(text, channel=channel)
 
     def send_failure(self, source: str, error: str) -> bool:
         text = (
-            f"⚠️ <b>Collector failure</b>\n"
-            f"source: <code>{source}</code>\n"
-            f"<pre>{error[:1500]}</pre>\n"
-            f"Will retry next run."
+            f"⚠️ <b>SENTINELWATCH · COLLECTOR FAULT</b>\n"
+            f"source <code>{source}</code>\n"
+            f"<pre>{error[:1200]}</pre>\n"
+            f"isolated · retry next schedule"
         )
         return self.send(text, channel="critical")
 
     def send_health(self, text: str) -> bool:
-        return self.send(text, channel="critical")
+        return self.send(f"🫀 <b>SENTINELWATCH · HEALTH</b>\n{text}", channel="critical")
 
 
 class EmailNotifier:
@@ -215,10 +274,7 @@ class EmailNotifier:
             f"CVE(s): {', '.join(vuln.cve_ids) or '—'}\n"
             f"Severity: {vuln.severity_tier} (CVSS {score})\n"
             f"Matched: {', '.join(vuln.matched_products) or '—'}\n"
-            f"Version applicable: {vuln.version_applicable} "
-            f"(unknown={vuln.version_unknown})\n"
-            f"Channel: {vuln.channel}\n"
-            f"Thread: {vuln.thread_key}\n"
+            f"Version applicable: {vuln.version_applicable}\n"
             f"URL: {vuln.url}\n\n"
             f"Impact: {vuln.impact_note or '—'}\n\n"
             f"{vuln.description}\n"
