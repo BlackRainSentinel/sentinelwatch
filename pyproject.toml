@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sentinelwatch"
-version = "3.5.0"
+version = "3.6.0"
 description = "Self-hosted vulnerability monitoring for shared hosting infrastructure"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -30,7 +30,7 @@ sentinelwatch = "sentinelwatch.__main__:main"
 include = ["sentinelwatch*"]
 
 [tool.setuptools.package-data]
-sentinelwatch = ["briefing/*.html"]
+sentinelwatch = ["briefing/*.html", "assets/severity/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

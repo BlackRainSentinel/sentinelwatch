@@ -19,6 +19,7 @@ from sentinelwatch.report_card import (
     score_tier,
     severity_emoji,
 )
+from sentinelwatch.severity_emblem import resolve_assets
 
 log = logging.getLogger(__name__)
 
@@ -248,9 +249,55 @@ class TelegramNotifier:
             log.exception("Telegram photo send failed (channel=%s)", channel)
             return False
 
+    def send_animation(
+        self,
+        gif: bytes,
+        caption: str,
+        *,
+        channel: str = "critical",
+        filename: str = "sentinelwatch-severity.gif",
+    ) -> bool:
+        """Inline animated GIF (Telegram sendAnimation)."""
+        if not self.enabled:
+            return False
+        chat_id = self._chat_for(channel)
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendAnimation"
+        cap = caption if len(caption) <= 1024 else caption[:1000] + "\n…"
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                resp = client.post(
+                    url,
+                    data={
+                        "chat_id": chat_id,
+                        "caption": cap,
+                        "parse_mode": "HTML",
+                    },
+                    files={"animation": (filename, gif, "image/gif")},
+                )
+                resp.raise_for_status()
+            return True
+        except Exception:
+            log.exception("Telegram animation send failed (channel=%s)", channel)
+            return False
+
     def send_alert(self, vuln: Vulnerability) -> bool:
         channel = vuln.channel or "critical"
         caption = format_alert_caption(vuln)
+        # Branded severity emblem GIF selected from CVSS (prerecorded asset)
+        try:
+            _state, gif_path, png_path = resolve_assets(vuln.cvss_score)
+            if gif_path.is_file():
+                if self.send_animation(gif_path.read_bytes(), caption, channel=channel):
+                    return True
+            if png_path.is_file() and self.send_photo(
+                png_path.read_bytes(),
+                caption,
+                channel=channel,
+                filename="sentinelwatch-severity.png",
+            ):
+                return True
+        except Exception:
+            log.exception("Severity emblem delivery failed; falling back")
         photo = render_alert_card(vuln)
         if photo and self.send_photo(photo, caption, channel=channel):
             return True
