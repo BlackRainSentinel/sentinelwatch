@@ -1,53 +1,45 @@
 """
-Threat briefing cards — editorial poster for Telegram.
+SentinelWatch threat art — cinematic 'Black Rain' posters for Telegram.
 
-Concept: Swiss / war-room bulletin. Typography does the work.
-No dashboard chrome, no gauges, no nested empty cards.
-Portrait 1080×1440 fills Telegram chat wider than landscape 16:9.
+The image is a visual identity piece (rain field, hazard geometry, score
+silhouette). Structured facts live primarily in the caption.
 """
 
 from __future__ import annotations
 
+import hashlib
 import io
 import logging
 import math
+import random
 import re
 from datetime import datetime, timezone
 from html import escape
-from importlib import resources
 from pathlib import Path
 
 from sentinelwatch.models import Vulnerability
 
 try:
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw, ImageFilter, ImageFont
 except ImportError:  # pragma: no cover
     Image = None  # type: ignore
     ImageDraw = None  # type: ignore
+    ImageFilter = None  # type: ignore
     ImageFont = None  # type: ignore
 
 log = logging.getLogger(__name__)
 
-# Portrait — reads large in Telegram (landscape gets shrunk)
-W, H = 1080, 1440
+# Square — fills Telegram chat aggressively
+W, H = 1280, 1280
 
-BG = (8, 10, 14)
-SURFACE = (16, 20, 28)
-INK = (250, 252, 255)
-DIM = (140, 150, 165)
-TEAL = (0, 210, 190)
-CRIMSON = (255, 52, 64)
-AMBER = (255, 180, 40)
-GREEN = (60, 210, 140)
-RULE = (40, 48, 62)
-
-_SEVERITY = {
-    "critical": (CRIMSON, "CRITICAL"),
-    "high": (AMBER, "HIGH"),
-    "medium": ((80, 160, 255), "MEDIUM"),
-    "low": (GREEN, "LOW"),
-    "unknown": (DIM, "UNKNOWN"),
-}
+BG = (6, 8, 14)
+INK = (248, 250, 252)
+DIM = (150, 162, 178)
+TEAL = (0, 220, 205)
+TEAL_DEEP = (0, 90, 85)
+CRIMSON = (255, 48, 68)
+AMBER = (255, 186, 40)
+GREEN = (64, 220, 150)
 
 
 def score_tier(score: float) -> str:
@@ -92,18 +84,22 @@ def blast_emoji(blast: str) -> str:
     }.get((blast or "normal").lower(), "◇")
 
 
-def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
+def _font(size: int, *, black: bool = False, bold: bool = False) -> ImageFont.ImageFont:
     paths: list[str] = []
-    if bold:
+    if black:
         paths += [
+            "/usr/share/fonts/truetype/noto/NotoSansDisplay-Black.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-Black.ttf",
+        ]
+    if bold or black:
+        paths += [
+            "/usr/share/fonts/truetype/noto/NotoSansDisplay-Bold.ttf",
             "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
         ]
     paths += [
         "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
     ]
     for p in paths:
         if Path(p).is_file():
@@ -118,7 +114,6 @@ def _mono(size: int) -> ImageFont.ImageFont:
     for p in (
         "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
     ):
         if Path(p).is_file():
             try:
@@ -167,218 +162,280 @@ def _fmt_cvss(vuln: Vulnerability) -> str:
     return f"{vuln.cvss_score:.1f}"
 
 
+def _seed(vuln: Vulnerability) -> int:
+    key = f"{vuln.external_id}|{vuln.cve_ids}|{vuln.alert_score}"
+    return int(hashlib.sha256(key.encode()).hexdigest()[:8], 16)
+
+
+def _paint_atmosphere(base: Image.Image, heat: tuple[int, int, int], rng: random.Random) -> None:
+    """Black Rain field — brand-unique weather, not a UI grid."""
+    draw = ImageDraw.Draw(base)
+    # vertical depth wash
+    for y in range(H):
+        t = y / H
+        r = int(BG[0] + heat[0] * 0.07 * (1 - t) + 10 * t)
+        g = int(BG[1] + heat[1] * 0.04 * (1 - t) + 12 * t)
+        b = int(BG[2] + heat[2] * 0.05 * (1 - t) + 16 * t)
+        draw.line([(0, y), (W, y)], fill=(min(255, r), min(255, g), min(255, b)))
+
+    # rain streaks (seeded → unique per CVE)
+    rain = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    rd = ImageDraw.Draw(rain)
+    for _ in range(180):
+        x = rng.randint(-40, W + 40)
+        y = rng.randint(-40, H)
+        length = rng.randint(28, 90)
+        alpha = rng.randint(18, 55)
+        color = (*TEAL, alpha) if rng.random() > 0.35 else (180, 200, 220, alpha // 2)
+        rd.line([(x, y), (x + length * 0.25, y + length)], fill=color, width=rng.choice([1, 1, 2]))
+    base.paste(Image.alpha_composite(base.convert("RGBA"), rain).convert("RGB"))
+
+    # soft hazard bloom top-right
+    bloom = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(bloom)
+    bd.ellipse([W - 520, -180, W + 180, 520], fill=(*heat, 55))
+    bloom = bloom.filter(ImageFilter.GaussianBlur(90))
+    base.paste(Image.alpha_composite(base.convert("RGBA"), bloom).convert("RGB"))
+
+
+def _hazard_slash(draw: ImageDraw.ImageDraw, color: tuple[int, int, int]) -> None:
+    # Dramatic diagonal band
+    pts = [(W * 0.55, -40), (W + 40, -40), (W + 40, H * 0.22), (W * 0.35, H * 0.55)]
+    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    od = ImageDraw.Draw(overlay)
+    od.polygon(pts, fill=(*color, 38))
+    # thin bright edge
+    od.line([(W * 0.55, -40), (W * 0.35, H * 0.55)], fill=(*color, 160), width=4)
+
+
+def _score_silhouette(draw: ImageDraw.ImageDraw, score: float, color: tuple[int, int, int]) -> None:
+    """Giant ghost score behind the title — the art centerpiece."""
+    f = _font(420, black=True)
+    txt = f"{score:.0f}"
+    # outline-ish by stacking offsets in dim color
+    cx, cy = W // 2 - 40, H // 2 - 80
+    tw = draw.textlength(txt, font=f)
+    x = cx - tw / 2
+    for dx, dy in ((-3, 0), (3, 0), (0, -3), (0, 3), (0, 0)):
+        fill = (*color, ) if False else (color[0] // 5, color[1] // 5, color[2] // 5)
+        draw.text((x + dx, cy + dy), txt, font=f, fill=fill)
+
+
+def _glass_panel(draw, xy, radius: int = 28) -> None:
+    draw.rounded_rectangle(xy, radius=radius, fill=(18, 26, 40), outline=(55, 75, 100), width=2)
+
+
 def render_alert_card(vuln: Vulnerability) -> bytes | None:
-    """Portrait editorial poster → Telegram JPEG."""
+    """Creative Black Rain poster → sharp Telegram JPEG."""
     if Image is None:
         return None
 
     score = float(vuln.alert_score or 0)
-    sev_key = (vuln.severity_tier or "unknown").lower()
-    sev_color, sev_label = _SEVERITY.get(sev_key, _SEVERITY["unknown"])
+    sev = (vuln.severity_tier or "unknown").lower()
+    heat = {
+        "critical": CRIMSON,
+        "high": AMBER,
+        "medium": (80, 160, 255),
+        "low": GREEN,
+        "unknown": DIM,
+    }.get(sev, CRIMSON)
     headline, summary = _split_title(vuln.title or "")
     if not summary:
         summary = "Confirm exposure on your shared-hosting stack."
+    cve = ", ".join(vuln.cve_ids[:2]) if vuln.cve_ids else (vuln.external_id or "pre-CVE")
+    stack = ", ".join(vuln.matched_products[:2]) if vuln.matched_products else "review"
+    rng = random.Random(_seed(vuln))
 
-    stack = ", ".join(vuln.matched_products[:3]) if vuln.matched_products else "Unmatched"
-    cve = ", ".join(vuln.cve_ids[:3]) if vuln.cve_ids else (vuln.external_id or "pre-CVE")
-    fleet = "Yes — matches fleet" if vuln.version_applicable else "No — not in fleet versions"
-    impact = (vuln.impact_note or "No hosting-specific impact note is available.").strip()
-    blast = (vuln.blast_radius or "normal").upper()
-    tier = {1: "Official", 2: "Research", 3: "Aggregator"}.get(int(vuln.source_tier or 3), "?")
+    # Draw at 2× then downscale — survives Telegram recompression better
+    scale = 2
+    sw, sh = W * scale, H * scale
+    img = Image.new("RGB", (sw, sh), BG)
 
-    img = Image.new("RGB", (W, H), BG)
-    draw = ImageDraw.Draw(img)
-    pad = 56
-    content_w = W - pad * 2
-    y = 0
+    # Temporarily work in logical coords via resize at end — draw on hi-res
+    # Simpler: draw directly at 2× with fonts * scale
+    def F(size: int, **kw):
+        return _font(size * scale, **kw)
 
-    # ── Top urgency strip (only real signals) ─────────────────────
-    strip_h = 72
-    draw.rectangle([0, 0, W, strip_h], fill=sev_color)
-    strip_txt = sev_label
+    def M(size: int):
+        return _mono(size * scale)
+
+    # Atmosphere on hi-res
+    hi = Image.new("RGB", (sw, sh), BG)
+    # scale atmosphere by drawing on logical then upscale? Draw rain on hi-res.
+    draw0 = ImageDraw.Draw(hi)
+    for y in range(sh):
+        t = y / sh
+        r = int(BG[0] + heat[0] * 0.08 * (1 - t) + 12 * t)
+        g = int(BG[1] + heat[1] * 0.05 * (1 - t) + 14 * t)
+        b = int(BG[2] + heat[2] * 0.06 * (1 - t) + 18 * t)
+        draw0.line([(0, y), (sw, y)], fill=(min(255, r), min(255, g), min(255, b)))
+
+    rain = Image.new("RGBA", (sw, sh), (0, 0, 0, 0))
+    rd = ImageDraw.Draw(rain)
+    for _ in range(320):
+        x = rng.randint(-80, sw + 80)
+        y = rng.randint(-80, sh)
+        length = rng.randint(50, 160) * scale // 2
+        alpha = rng.randint(20, 60)
+        col = (*TEAL, alpha) if rng.random() > 0.3 else (190, 210, 230, alpha // 2)
+        rd.line([(x, y), (x + length * 0.22, y + length)], fill=col, width=max(1, scale))
+    hi = Image.alpha_composite(hi.convert("RGBA"), rain).convert("RGB")
+
+    bloom = Image.new("RGBA", (sw, sh), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(bloom)
+    bd.ellipse([sw - 900, -300, sw + 300, 900], fill=(*heat, 60))
+    bloom = bloom.filter(ImageFilter.GaussianBlur(120))
+    hi = Image.alpha_composite(hi.convert("RGBA"), bloom).convert("RGB")
+
+    # Diagonal slash
+    slash = Image.new("RGBA", (sw, sh), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(slash)
+    sd.polygon(
+        [
+            (sw * 0.52, 0),
+            (sw, 0),
+            (sw, sh * 0.28),
+            (sw * 0.28, sh * 0.62),
+        ],
+        fill=(*heat, 42),
+    )
+    sd.line([(sw * 0.52, 0), (sw * 0.28, sh * 0.62)], fill=(*heat, 180), width=5 * scale)
+    hi = Image.alpha_composite(hi.convert("RGBA"), slash).convert("RGB")
+
+    draw = ImageDraw.Draw(hi)
+
+    # Giant score watermark
+    sf = F(400, black=True)
+    st = f"{score:.0f}"
+    tw = draw.textlength(st, font=sf)
+    sx = (sw - tw) / 2
+    sy = sh * 0.22
+    ghost = (heat[0] // 4 + 8, heat[1] // 6 + 8, heat[2] // 6 + 10)
+    draw.text((sx, sy), st, font=sf, fill=ghost)
+
+    # Radar rings (art, not a UI gauge)
+    cx, cy = int(sw * 0.78), int(sh * 0.78)
+    for i, rad in enumerate((90, 160, 240, 330)):
+        r = rad * scale
+        col = (0, 100 + i * 25, 110)
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=col, width=2 * scale)
+    r = 240 * scale
+    span = 270 * min(100.0, score) / 100.0
+    draw.arc([cx - r, cy - r, cx + r, cy + r], start=-90, end=-90 + span, fill=heat, width=10 * scale)
+
+    # Top brand
+    pad = 56 * scale
+    draw.text((pad, 48 * scale), "SENTINELWATCH", font=F(28, bold=True), fill=TEAL)
+    draw.text((pad, 88 * scale), "BLACK RAIN  ·  HOSTING ALERT", font=F(18, bold=True), fill=DIM)
+
+    # KEV / severity ribbon
+    ribbon = "CRITICAL"
     if vuln.in_kev:
-        strip_txt = f"{sev_label}  ·  CISA KEV — ACTIVELY EXPLOITED"
+        ribbon = "CISA KEV  ·  ACTIVELY EXPLOITED"
     elif vuln.in_hosting_kev:
-        strip_txt = f"{sev_label}  ·  HOSTING KEV"
-    sf = _font(26, bold=True)
-    sw = draw.textlength(strip_txt, font=sf)
-    draw.text(((W - sw) / 2, 22), strip_txt, font=sf, fill=(12, 8, 10))
-    y = strip_h + 40
+        ribbon = "HOSTING KEV"
+    rf = F(22, black=True)
+    rw = draw.textlength(ribbon, font=rf) + 56 * scale
+    rx = sw - pad - rw
+    draw.rounded_rectangle(
+        [rx, 52 * scale, rx + rw, 108 * scale],
+        radius=16 * scale,
+        fill=heat,
+    )
+    draw.text((rx + 28 * scale, 66 * scale), ribbon, font=rf, fill=(10, 6, 8))
 
-    # Brand
-    draw.text((pad, y), "SENTINELWATCH", font=_font(22, bold=True), fill=TEAL)
-    y += 32
-    draw.text((pad, y), "HOSTING THREAT BRIEFING", font=_font(18, bold=True), fill=DIM)
-    y += 56
+    # Glass title plate — height fits content (no empty void)
+    title_f = F(52, black=True)
+    sum_f = F(26)
+    title_lines = _wrap(draw, headline, title_f, sw - pad * 2 - 48 * scale)[:3]
+    sum_lines = _wrap(draw, summary, sum_f, sw - pad * 2 - 48 * scale)[:2]
+    plate_h = (36 + len(title_lines) * 62 + 16 + len(sum_lines) * 36 + 40) * scale
+    plate_top = int(sh * 0.50)
+    draw.rounded_rectangle(
+        [pad, plate_top, sw - pad, plate_top + plate_h],
+        radius=32 * scale,
+        fill=(14, 22, 36),
+        outline=(70, 95, 120),
+        width=3 * scale,
+    )
+    draw.rectangle(
+        [pad, plate_top, pad + 12 * scale, plate_top + plate_h],
+        fill=TEAL,
+    )
 
-    # Giant score block — typography, not a toy gauge
-    draw.text((pad, y), "SENTINEL SCORE", font=_font(18, bold=True), fill=DIM)
-    y += 28
-    score_f = _font(140, bold=True)
-    draw.text((pad, y - 10), f"{score:.0f}", font=score_f, fill=INK)
-    # CVSS beside score
-    side_x = pad + 340
-    draw.text((side_x, y + 24), "CVSS", font=_font(18, bold=True), fill=DIM)
-    draw.text((side_x, y + 50), _fmt_cvss(vuln), font=_font(56, bold=True), fill=INK)
-    draw.text((side_x, y + 120), "industry · separate", font=_font(16), fill=DIM)
-    y += 170
+    ty = plate_top + 36 * scale
+    for line in title_lines:
+        draw.text((pad + 36 * scale, ty), line, font=title_f, fill=INK)
+        ty += 62 * scale
+    ty += 8 * scale
+    for line in sum_lines:
+        draw.text((pad + 36 * scale, ty), line, font=sum_f, fill=DIM)
+        ty += 36 * scale
 
-    # Rule
-    draw.rectangle([pad, y, W - pad, y + 3], fill=sev_color)
-    y += 36
-
-    # Headline — the product of the poster
-    hf = _font(54, bold=True)
-    for line in _wrap(draw, headline, hf, content_w)[:3]:
-        draw.text((pad, y), line, font=hf, fill=INK)
-        y += 64
-    y += 8
-    sum_f = _font(28)
-    for line in _wrap(draw, summary, sum_f, content_w)[:3]:
-        draw.text((pad, y), line, font=sum_f, fill=DIM)
-        y += 38
-    y += 28
-
-    # Spec sheet — rows, not cards
-    draw.rectangle([pad, y, W - pad, y + 2], fill=RULE)
-    y += 28
-
-    rows = [
-        ("AFFECTED STACK", stack, TEAL),
-        ("CVE / ADVISORY", cve, AMBER),
-        ("BLAST RADIUS", blast, sev_color),
-        ("SOURCE", f"{tier} · {(vuln.source or '?')[:28]}", INK),
-        ("FLEET MATCH", fleet, GREEN if vuln.version_applicable else AMBER),
+    # Bottom stamp row
+    by = sh - 200 * scale
+    chips = [
+        (cve, AMBER),
+        (stack, TEAL),
+        (f"CVSS {_fmt_cvss(vuln)}", INK),
+        (f"SCORE {score:.0f}", heat),
     ]
-    label_f = _font(16, bold=True)
-    value_f = _mono(26)
-    for lab, val, col in rows:
-        draw.text((pad, y), lab, font=label_f, fill=DIM)
-        # value may wrap once
-        vlines = _wrap(draw, val, value_f, content_w)[:2]
-        draw.text((pad, y + 26), vlines[0], font=value_f, fill=col)
-        y += 26 + 34
-        if len(vlines) > 1:
-            draw.text((pad, y), vlines[1], font=value_f, fill=col)
-            y += 34
-        y += 14
+    if vuln.version_applicable:
+        chips.append(("FLEET OK", GREEN))
+    else:
+        chips.append(("FLEET GAP", AMBER))
 
-    # Impact — full width text block with accent bar
-    y += 8
-    impact_top = y
-    draw.text((pad + 24, y), "OPERATOR IMPACT", font=_font(18, bold=True), fill=TEAL)
-    y += 40
-    body = _font(28)
-    impact_lines = _wrap(draw, impact, body, content_w - 24)[:6]
-    for line in impact_lines:
-        draw.text((pad + 24, y), line, font=body, fill=INK)
-        y += 38
-    draw.rectangle([pad, impact_top, pad + 8, y + 4], fill=TEAL)
-    y += 48
+    cx_chip = pad
+    cf = F(20, bold=True)
+    for label, col in chips:
+        tw = draw.textlength(label, font=cf)
+        cw = tw + 40 * scale
+        ch = 52 * scale
+        if cx_chip + cw > sw - pad:
+            break
+        draw.rounded_rectangle(
+            [cx_chip, by, cx_chip + cw, by + ch],
+            radius=14 * scale,
+            fill=(22, 32, 48),
+            outline=col,
+            width=3 * scale,
+        )
+        draw.text((cx_chip + 20 * scale, by + 12 * scale), label, font=cf, fill=col)
+        cx_chip += cw + 16 * scale
 
-    # Footer immediately under content — then crop empty canvas
-    draw.rectangle([pad, y, W - pad, y + 2], fill=RULE)
-    y += 20
-    foot = _font(17)
+    # Footer wordmark
+    draw.text((pad, sh - 70 * scale), "BLACKRAINSENTINEL", font=F(18, bold=True), fill=TEAL_DEEP)
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    draw.text((pad, y), ts, font=foot, fill=DIM)
-    bw = draw.textlength("BLACKRAINSENTINEL", font=foot)
-    draw.text((W - pad - bw, y), "BLACKRAINSENTINEL", font=foot, fill=TEAL)
-    y += 48
+    tsw = draw.textlength(ts, font=F(16))
+    draw.text((sw - pad - tsw, sh - 70 * scale), ts, font=F(16), fill=DIM)
 
-    # Crop to content (kill the black void Telegram was showing)
-    crop_h = min(H, max(y, 900))
-    img = img.crop((0, 0, W, crop_h))
-
+    # Downscale to Telegram size with Lanczos
+    out = hi.resize((W, H), Image.Resampling.LANCZOS)
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=97, optimize=True, progressive=True, subsampling=0)
+    out.save(buf, format="JPEG", quality=95, optimize=True, progressive=True, subsampling=0)
     return buf.getvalue()
 
 
 def render_alert_card_png(vuln: Vulnerability) -> bytes | None:
-    """Lossless PNG archive (2× poster)."""
     jpeg = render_alert_card(vuln)
     if not jpeg or Image is None:
         return None
     img = Image.open(io.BytesIO(jpeg)).convert("RGB")
-    big = img.resize((img.width * 2, img.height * 2), Image.Resampling.LANCZOS)
+    big = img.resize((W * 2, H * 2), Image.Resampling.LANCZOS)
     buf = io.BytesIO()
     big.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
 
 
 def build_alert_html(vuln: Vulnerability) -> str:
-    """Minimal editable HTML mirror of the poster concept."""
-    score = float(vuln.alert_score or 0)
-    sev_key = (vuln.severity_tier or "unknown").lower()
-    sev_color, sev_label = _SEVERITY.get(sev_key, _SEVERITY["unknown"])
-    sev_hex = "#%02x%02x%02x" % sev_color
     headline, summary = _split_title(vuln.title or "")
-    if not summary:
-        summary = "Confirm exposure on your shared-hosting stack."
-    stack = ", ".join(vuln.matched_products[:4]) if vuln.matched_products else "Unmatched"
-    cve = ", ".join(vuln.cve_ids[:4]) if vuln.cve_ids else (vuln.external_id or "pre-CVE")
-    fleet = "Yes — matches fleet" if vuln.version_applicable else "No — not in fleet versions"
-    impact = (vuln.impact_note or "No hosting-specific impact note is available.").strip()
-    banner = sev_label
-    if vuln.in_kev:
-        banner = f"{sev_label}  ·  CISA KEV — ACTIVELY EXPLOITED"
-
-    return f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"/>
-<title>SentinelWatch Briefing</title>
-<style>
-  body{{margin:0;background:#080a0e;color:#fafcff;font-family:"Noto Sans",system-ui,sans-serif}}
-  .poster{{width:1080px;min-height:1440px;margin:0 auto;padding:0 0 48px;box-sizing:border-box}}
-  .strip{{background:{sev_hex};color:#0c080a;text-align:center;font-weight:700;font-size:26px;padding:22px}}
-  .pad{{padding:40px 56px}}
-  .brand{{color:#00d2be;font-weight:700;letter-spacing:.08em;font-size:22px}}
-  .kicker{{color:#8c96a5;font-size:18px;font-weight:700;margin-top:8px}}
-  .score{{font-size:140px;font-weight:700;line-height:1;margin:24px 0 0}}
-  .cvss{{font-size:56px;font-weight:700}}
-  .muted{{color:#8c96a5}}
-  h1{{font-size:54px;line-height:1.15;margin:28px 0 12px;font-weight:700}}
-  .sum{{font-size:28px;color:#8c96a5;line-height:1.35}}
-  .row{{margin:18px 0}}
-  .row .l{{font-size:16px;font-weight:700;color:#8c96a5;letter-spacing:.06em}}
-  .row .v{{font-size:26px;font-weight:700;margin-top:6px;font-family:ui-monospace,monospace}}
-  .impact{{border-left:8px solid #00d2be;padding-left:24px;margin-top:28px}}
-  .impact h2{{color:#00d2be;font-size:16px;letter-spacing:.08em}}
-  .impact p{{font-size:26px;line-height:1.4}}
-  footer{{margin-top:48px;color:#8c96a5;font-size:16px;display:flex;justify-content:space-between}}
-</style></head><body>
-<article class="poster">
-  <div class="strip">{escape(banner)}</div>
-  <div class="pad">
-    <div class="brand">SENTINELWATCH</div>
-    <div class="kicker">HOSTING THREAT BRIEFING</div>
-    <div style="display:flex;gap:48px;align-items:flex-end">
-      <div>
-        <div class="muted" style="font-size:18px;font-weight:700">SENTINEL SCORE</div>
-        <div class="score">{score:.0f}</div>
-      </div>
-      <div>
-        <div class="muted" style="font-size:18px;font-weight:700">CVSS</div>
-        <div class="cvss">{escape(_fmt_cvss(vuln))}</div>
-        <div class="muted" style="font-size:16px">industry · separate</div>
-      </div>
-    </div>
-    <hr style="border:none;height:3px;background:{sev_hex};margin:28px 0"/>
-    <h1>{escape(headline)}</h1>
-    <p class="sum">{escape(summary)}</p>
-    <div class="row"><div class="l">AFFECTED STACK</div><div class="v" style="color:#00d2be">{escape(stack)}</div></div>
-    <div class="row"><div class="l">CVE / ADVISORY</div><div class="v" style="color:#ffb428">{escape(cve)}</div></div>
-    <div class="row"><div class="l">BLAST RADIUS</div><div class="v" style="color:{sev_hex}">{escape((vuln.blast_radius or 'normal').upper())}</div></div>
-    <div class="row"><div class="l">FLEET MATCH</div><div class="v">{escape(fleet)}</div></div>
-    <div class="impact"><h2>OPERATOR IMPACT</h2><p>{escape(impact)}</p></div>
-    <footer>
-      <span>{datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}</span>
-      <span style="color:#00d2be;font-weight:700">BLACKRAINSENTINEL</span>
-    </footer>
-  </div>
-</article>
-</body></html>
-"""
+    return (
+        f"<!DOCTYPE html><html><body style='background:#080a0e;color:#fff;font-family:sans-serif'>"
+        f"<p>Black Rain poster (Pillow). Preview via render_alert_card.</p>"
+        f"<h1>{escape(headline)}</h1><p>{escape(summary)}</p>"
+        f"<p>{escape(', '.join(vuln.cve_ids) or vuln.external_id)}</p>"
+        f"</body></html>"
+    )
 
 
 def write_alert_sources(vuln: Vulnerability, out_dir: str | Path) -> dict[str, Path]:
@@ -400,25 +457,21 @@ def write_alert_sources(vuln: Vulnerability, out_dir: str | Path) -> dict[str, P
 def render_digest_card(items: list[Vulnerability], title: str = "Daily Digest") -> bytes | None:
     if Image is None:
         return None
-    # Same portrait canvas for consistency
     img = Image.new("RGB", (W, H), BG)
     draw = ImageDraw.Draw(img)
-    draw.rectangle([0, 0, W, 72], fill=TEAL)
-    draw.text((56, 22), "SENTINELWATCH DIGEST", font=_font(26, bold=True), fill=(8, 10, 14))
-    draw.text((56, 100), title.upper(), font=_font(22, bold=True), fill=DIM)
-    draw.text((56, 140), f"{len(items)} findings", font=_font(48, bold=True), fill=INK)
-
-    y = 220
-    for v in items[:8]:
+    draw.rectangle([0, 0, W, 90], fill=TEAL)
+    draw.text((48, 28), "SENTINELWATCH DIGEST", font=_font(28, black=True), fill=BG)
+    draw.text((48, 120), title.upper(), font=_font(22, bold=True), fill=DIM)
+    draw.text((48, 160), f"{len(items)} findings", font=_font(56, black=True), fill=INK)
+    y = 260
+    for v in items[:7]:
         sev = (v.severity_tier or "unknown").lower()
-        color, _ = _SEVERITY.get(sev, _SEVERITY["unknown"])
-        draw.rectangle([56, y, 64, y + 100], fill=color)
-        draw.text((80, y), f"{float(v.alert_score or 0):.0f}", font=_font(36, bold=True), fill=color)
-        for i, line in enumerate(_wrap(draw, v.title or "", _font(24, bold=True), W - 200)[:2]):
-            draw.text((200, y + i * 32), line, font=_font(24, bold=True), fill=INK)
-        draw.text((200, y + 70), f"{sev} · {_fmt_cvss(v)}", font=_font(18), fill=DIM)
-        y += 120
-
+        heat = CRIMSON if sev == "critical" else AMBER if sev == "high" else TEAL
+        draw.rectangle([48, y, 56, y + 88], fill=heat)
+        draw.text((72, y + 8), f"{float(v.alert_score or 0):.0f}", font=_font(36, black=True), fill=heat)
+        for i, line in enumerate(_wrap(draw, v.title or "", _font(24, bold=True), W - 220)[:2]):
+            draw.text((180, y + 10 + i * 30), line, font=_font(24, bold=True), fill=INK)
+        y += 110
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=95, optimize=True, subsampling=0)
+    img.save(buf, format="JPEG", quality=92, optimize=True, subsampling=0)
     return buf.getvalue()
