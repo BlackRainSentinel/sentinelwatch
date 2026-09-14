@@ -1,8 +1,9 @@
 """
-Visual threat briefing cards for Telegram (high-res PNG).
+Telegram-first threat briefing cards.
 
-HUD / ops-console language: deep ink field, teal signal, amber hazard,
-score-tier heat. Rendered at 2× for sharp Telegram display.
+Designed for sendPhoto (big inline preview in chat), not document
+attachments. Flat high-contrast poster layout so Telegram's JPEG
+recompression still stays readable.
 """
 
 from __future__ import annotations
@@ -15,43 +16,39 @@ from pathlib import Path
 from sentinelwatch.models import Vulnerability
 
 try:
-    from PIL import Image, ImageDraw, ImageFilter, ImageFont
+    from PIL import Image, ImageDraw, ImageFont
 except ImportError:  # pragma: no cover
     Image = None  # type: ignore
     ImageDraw = None  # type: ignore
-    ImageFilter = None  # type: ignore
     ImageFont = None  # type: ignore
 
 
-# ── Palette ──────────────────────────────────────────────────────────
-INK = (6, 10, 16)
-PANEL = (14, 22, 32)
-PANEL2 = (20, 32, 46)
-PANEL3 = (28, 44, 62)
-TEAL = (0, 220, 200)
-TEAL_DIM = (0, 110, 100)
-TEAL_GLOW = (0, 180, 165)
-AMBER = (255, 186, 40)
-CRIMSON = (255, 58, 68)
-ICE = (236, 244, 252)
-MUTED = (110, 132, 154)
-LINE = (38, 56, 74)
-GREEN = (64, 210, 140)
+# Palette — high contrast for Telegram JPEG
+INK = (10, 14, 22)
+PANEL = (18, 26, 38)
+PANEL2 = (26, 38, 54)
+TEAL = (0, 230, 210)
+AMBER = (255, 190, 45)
+CRIMSON = (255, 55, 70)
+ICE = (245, 248, 252)
+MUTED = (140, 158, 178)
+LINE = (48, 68, 90)
+GREEN = (70, 220, 150)
 
 _SEVERITY_COLOR = {
     "critical": CRIMSON,
     "high": AMBER,
-    "medium": (72, 168, 255),
+    "medium": (80, 170, 255),
     "low": GREEN,
     "unknown": MUTED,
 }
 
-# Canvas — 2× so Telegram compression still looks crisp
-W, H = 2560, 1440
+# Telegram sweet spot: full-width chat photo, not a file thumbnail.
+# ~1280px longest edge is what Telegram keeps sharp for sendPhoto.
+W, H = 1280, 720
 
 
 def score_tier(score: float) -> str:
-    """Map alert score → visual/caption tier."""
     s = float(score or 0)
     if s >= 90:
         return "catastrophic"
@@ -96,9 +93,9 @@ def blast_emoji(blast: str) -> str:
 def _tier_heat(score: float) -> tuple[int, int, int]:
     return {
         "catastrophic": CRIMSON,
-        "severe": (255, 96, 48),
+        "severe": (255, 110, 50),
         "elevated": AMBER,
-        "moderate": (72, 168, 255),
+        "moderate": (80, 170, 255),
         "watch": TEAL,
     }[score_tier(score)]
 
@@ -150,127 +147,51 @@ def _rounded(draw: ImageDraw.ImageDraw, xy, radius: int, fill, outline=None, wid
     draw.rounded_rectangle(xy, radius=radius, fill=fill, outline=outline, width=width)
 
 
-def _blend(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[int, int, int]:
-    t = max(0.0, min(1.0, t))
-    return (
-        int(a[0] + (b[0] - a[0]) * t),
-        int(a[1] + (b[1] - a[1]) * t),
-        int(a[2] + (b[2] - a[2]) * t),
-    )
-
-
-def _paint_atmosphere(img: Image.Image, heat: tuple[int, int, int]) -> None:
-    """Vertical wash + soft heat bloom + grid."""
-    draw = ImageDraw.Draw(img)
-    for y in range(H):
-        t = y / H
-        base = _blend(INK, PANEL, t * 0.55)
-        wash = _blend(base, heat, 0.05 * (1.0 - t) + 0.02)
-        draw.line([(0, y), (W, y)], fill=wash)
-
-    # Diagonal scan sheen (subtle)
-    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    od = ImageDraw.Draw(overlay)
-    for i in range(0, W + H, 36):
-        od.line([(i, 0), (i - H, H)], fill=(255, 255, 255, 8), width=1)
-    composed = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
-    img.paste(composed)
-
-    # Fine grid
-    g = ImageDraw.Draw(img)
-    for x in range(80, W, 80):
-        g.line([(x, 0), (x, H)], fill=LINE, width=1)
-    for y in range(80, H, 80):
-        g.line([(0, y), (W, y)], fill=LINE, width=1)
-
-
-def _hud_brackets(draw: ImageDraw.ImageDraw, x0: int, y0: int, x1: int, y1: int, color, arm: int = 36) -> None:
-    """Corner HUD marks."""
-    w = 4
-    # TL
-    draw.line([(x0, y0 + arm), (x0, y0), (x0 + arm, y0)], fill=color, width=w)
-    # TR
-    draw.line([(x1 - arm, y0), (x1, y0), (x1, y0 + arm)], fill=color, width=w)
-    # BL
-    draw.line([(x0, y1 - arm), (x0, y1), (x0 + arm, y1)], fill=color, width=w)
-    # BR
-    draw.line([(x1 - arm, y1), (x1, y1), (x1, y1 - arm)], fill=color, width=w)
-
-
-def _score_gauge(
-    base: Image.Image,
-    cx: int,
-    cy: int,
-    r: int,
-    score: float,
-    color: tuple[int, int, int],
-) -> None:
-    """Thick ring with tick marks + glow layer."""
-    glow = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    gd = ImageDraw.Draw(glow)
-    bbox = [cx - r - 8, cy - r - 8, cx + r + 8, cy + r + 8]
-    span = 270 * max(0.0, min(100.0, score)) / 100.0
-    gd.arc(bbox, start=135, end=135 + span, fill=(*color, 100), width=32)
-    glow = glow.filter(ImageFilter.GaussianBlur(22))
-    composed = Image.alpha_composite(base.convert("RGBA"), glow).convert("RGB")
-    base.paste(composed)
-
-    draw = ImageDraw.Draw(base)
-    outer = [cx - r, cy - r, cx + r, cy + r]
-    draw.arc(outer, start=135, end=405, fill=LINE, width=18)
-    draw.arc(outer, start=135, end=135 + span, fill=color, width=18)
-
-    # Tick marks
-    for i in range(0, 11):
-        ang = math.radians(135 + 27 * i)
-        x0 = cx + (r - 28) * math.cos(ang)
-        y0 = cy + (r - 28) * math.sin(ang)
-        x1 = cx + (r - 12) * math.cos(ang)
-        y1 = cy + (r - 12) * math.sin(ang)
-        tick = color if i <= score / 10 else MUTED
-        draw.line([(x0, y0), (x1, y1)], fill=tick, width=3)
-
-    # Inner disc
-    draw.ellipse([cx - r + 42, cy - r + 42, cx + r - 42, cy + r - 42], fill=PANEL2, outline=PANEL3, width=2)
-    # Pulse dots
-    for i, a in enumerate((200, 260, 320)):
-        ang = math.radians(a)
-        px = cx + (r - 8) * math.cos(ang)
-        py = cy + (r - 8) * math.sin(ang)
-        rr = 5 if i == 0 else 4
-        draw.ellipse([px - rr, py - rr, px + rr, py + rr], fill=TEAL if i else color)
-
-
-def _chip(draw, x: int, y: int, label: str, font, fg, bg, pad_x: int = 22, h: int = 48) -> int:
-    tw = draw.textlength(label, font=font)
-    w = int(tw) + pad_x * 2
-    _rounded(draw, [x, y, x + w, y + h], 14, bg, outline=LINE, width=1)
-    draw.text((x + pad_x, y + 10), label, font=font, fill=fg)
-    return x + w + 16
-
-
-def _metric_block(draw, x: int, y: int, w: int, h: int, label: str, value: str, accent) -> None:
-    _rounded(draw, [x, y, x + w, y + h], 18, PANEL2, outline=LINE, width=2)
-    draw.rectangle([x, y, x + 8, y + h], fill=accent)
-    lf = _font(22)
-    vf = _font(34, bold=True)
-    draw.text((x + 28, y + 22), label, font=lf, fill=MUTED)
-    # wrap value
-    lines = _wrap(draw, value, vf, w - 56)[:2]
-    vy = y + 58
-    for line in lines:
-        draw.text((x + 28, vy), line, font=vf, fill=ICE)
-        vy += 40
-
-
 def _fmt_cvss(vuln: Vulnerability) -> str:
     if vuln.cvss_score is None:
         return "n/a"
     return f"{vuln.cvss_score:.1f}"
 
 
+def _chip(draw, x: int, y: int, label: str, font, fg, bg) -> int:
+    tw = int(draw.textlength(label, font=font))
+    w = tw + 28
+    h = 36
+    _rounded(draw, [x, y, x + w, y + h], 10, bg)
+    draw.text((x + 14, y + 8), label, font=font, fill=fg)
+    return x + w + 10
+
+
+def _gauge(draw: ImageDraw.ImageDraw, cx: int, cy: int, r: int, score: float, color) -> None:
+    bbox = [cx - r, cy - r, cx + r, cy + r]
+    span = 270 * max(0.0, min(100.0, score)) / 100.0
+    draw.arc(bbox, start=135, end=405, fill=LINE, width=16)
+    draw.arc(bbox, start=135, end=135 + span, fill=color, width=16)
+    # Inner ring accent
+    inner = [cx - r + 28, cy - r + 28, cx + r - 28, cy + r - 28]
+    draw.arc(inner, start=135, end=405, fill=PANEL2, width=4)
+    draw.ellipse([cx - r + 36, cy - r + 36, cx + r - 36, cy + r - 36], fill=PANEL)
+
+    # ticks
+    for i in range(0, 11):
+        ang = math.radians(135 + 27 * i)
+        x0 = cx + (r - 22) * math.cos(ang)
+        y0 = cy + (r - 22) * math.sin(ang)
+        x1 = cx + (r - 10) * math.cos(ang)
+        y1 = cy + (r - 10) * math.sin(ang)
+        draw.line([(x0, y0), (x1, y1)], fill=color if i <= score / 10 else MUTED, width=3)
+
+
+def _encode_photo(img: Image.Image) -> bytes:
+    """JPEG for Telegram sendPhoto — native path, full-size chat preview."""
+    buf = io.BytesIO()
+    # RGB JPEG; high quality so text survives Telegram's second pass
+    img.save(buf, format="JPEG", quality=95, optimize=True, progressive=True)
+    return buf.getvalue()
+
+
 def render_alert_card(vuln: Vulnerability) -> bytes | None:
-    """Return high-res PNG bytes, or None if Pillow unavailable."""
+    """Return JPEG bytes for Telegram sendPhoto, or None if Pillow missing."""
     if Image is None:
         return None
 
@@ -281,158 +202,140 @@ def render_alert_card(vuln: Vulnerability) -> bytes | None:
     tier = score_tier(score)
 
     img = Image.new("RGB", (W, H), INK)
-    _paint_atmosphere(img, heat)
     draw = ImageDraw.Draw(img)
 
-    # Left severity rail (thick)
-    draw.rectangle([0, 0, 28, H], fill=sev_color)
-    # Heat accent strip
-    draw.rectangle([28, 0, 36, H], fill=_blend(sev_color, INK, 0.55))
+    # Soft vertical wash (no fine grid — grids turn to mud after Telegram JPEG)
+    for y in range(H):
+        t = y / H
+        r = int(INK[0] + 8 * t)
+        g = int(INK[1] + 10 * t)
+        b = int(INK[2] + 14 * t)
+        # heat tint top
+        r = min(255, int(r + heat[0] * 0.04 * (1 - t)))
+        draw.line([(0, y), (W, y)], fill=(r, g, b))
 
-    # Outer frame
-    margin = 56
-    _hud_brackets(draw, margin, margin, W - margin, H - margin, TEAL_DIM, arm=48)
-    _rounded(draw, [margin + 12, margin + 12, W - margin - 12, H - margin - 12], 28, PANEL, outline=LINE, width=2)
+    # Severity rail
+    draw.rectangle([0, 0, 12, H], fill=sev_color)
 
-    # ── Header ────────────────────────────────────────────────────
-    brand = _font(56, bold=True)
-    sub = _font(26)
-    micro = _font(22)
-    draw.text((100, 92), "SENTINELWATCH", font=brand, fill=TEAL)
-    draw.text((100, 158), "SHARED-HOSTING THREAT BRIEFING  ·  LIVE", font=sub, fill=MUTED)
+    # Main panel
+    _rounded(draw, [28, 24, W - 28, H - 24], 20, PANEL)
 
-    # Live pulse
-    draw.ellipse([W - 420, 118, W - 400, 138], fill=CRIMSON)
-    draw.text((W - 388, 112), "SIGNAL ACTIVE", font=micro, fill=MUTED)
+    # Header
+    brand = _font(28, bold=True)
+    sub = _font(14)
+    draw.text((52, 42), "SENTINELWATCH", font=brand, fill=TEAL)
+    draw.text((52, 76), "HOSTING THREAT BRIEFING", font=sub, fill=MUTED)
+    draw.rectangle([52, 98, 280, 102], fill=TEAL)
 
-    # Badges
-    badge_font = _font(24, bold=True)
-    bx = W - 100
-    badges: list[tuple[str, tuple[int, int, int]]] = []
-    if vuln.in_kev:
-        badges.append(("CISA KEV", CRIMSON))
-    if vuln.in_hosting_kev:
-        badges.append(("HOSTING-KEV", AMBER))
+    # Live + badges
+    draw.ellipse([W - 310, 48, W - 296, 62], fill=CRIMSON)
+    draw.text((W - 288, 46), "LIVE", font=sub, fill=MUTED)
+
+    badge_f = _font(13, bold=True)
+    bx = W - 52
+    badges: list[tuple[str, tuple[int, int, int]]] = [(tier.upper(), heat)]
     if vuln.blast_radius == "critical":
         badges.append(("BLAST CRITICAL", CRIMSON))
     elif vuln.blast_radius == "elevated":
         badges.append(("BLAST ELEVATED", AMBER))
-    badges.append((tier.upper(), heat))
-    for label, color in reversed(badges):
-        tw = draw.textlength(label, font=badge_font)
-        bw = int(tw) + 40
-        bx -= bw + 18
-        _rounded(draw, [bx, 170, bx + bw, 220], 14, color)
-        draw.text((bx + 20, 180), label, font=badge_font, fill=INK)
+    if vuln.in_hosting_kev:
+        badges.append(("HOSTING-KEV", AMBER))
+    if vuln.in_kev:
+        badges.append(("CISA KEV", CRIMSON))
+    for label, color in badges:
+        tw = int(draw.textlength(label, font=badge_f))
+        bw = tw + 22
+        bx -= bw + 8
+        _rounded(draw, [bx, 70, bx + bw, 98], 8, color)
+        draw.text((bx + 11, 76), label, font=badge_f, fill=INK)
 
-    # Divider under header
-    draw.line([(100, 250), (W - 100, 250)], fill=LINE, width=2)
-    # Teal accent underline under brand
-    draw.rectangle([100, 248, 420, 254], fill=TEAL)
+    # Score gauge (left)
+    gx, gy, gr = 170, 320, 118
+    _gauge(draw, gx, gy, gr, score, heat)
+    sf = _font(64, bold=True)
+    st = f"{score:.0f}"
+    sw = draw.textlength(st, font=sf)
+    draw.text((gx - sw / 2, gy - 42), st, font=sf, fill=ICE)
+    lf = _font(14, bold=True)
+    lab = "SENTINEL SCORE"
+    lw = draw.textlength(lab, font=lf)
+    draw.text((gx - lw / 2, gy + 28), lab, font=lf, fill=MUTED)
+    tf = _font(16, bold=True)
+    tw = draw.textlength(tier.upper(), font=tf)
+    draw.text((gx - tw / 2, gy + 50), tier.upper(), font=tf, fill=heat)
 
-    # ── Score column (left) ───────────────────────────────────────
-    gx, gy, gr = 340, 620, 200
-    _score_gauge(img, gx, gy, gr, score, heat)
-    draw = ImageDraw.Draw(img)
+    # Threat density bar
+    bar_x, bar_y, bar_w = 60, 480, 220
+    _rounded(draw, [bar_x, bar_y, bar_x + bar_w, bar_y + 14], 7, PANEL2)
+    fill = int(bar_w * max(0.0, min(100.0, score)) / 100.0)
+    if fill > 8:
+        _rounded(draw, [bar_x, bar_y, bar_x + fill, bar_y + 14], 7, heat)
+    draw.text((bar_x, bar_y + 22), "THREAT DENSITY", font=sub, fill=MUTED)
 
-    score_font = _font(110, bold=True)
-    score_txt = f"{score:.0f}"
-    sw = draw.textlength(score_txt, font=score_font)
-    draw.text((gx - sw / 2, gy - 78), score_txt, font=score_font, fill=ICE)
-    lab = _font(28, bold=True)
-    lw = draw.textlength("ALERT SCORE", font=lab)
-    draw.text((gx - lw / 2, gy + 40), "ALERT SCORE", font=lab, fill=MUTED)
-    tw = draw.textlength(tier.upper(), font=lab)
-    draw.text((gx - tw / 2, gy + 82), tier.upper(), font=lab, fill=heat)
+    # Right content
+    rx = 340
+    mega = _font(36, bold=True)
+    draw.text((rx, 120), sev.upper(), font=mega, fill=sev_color)
 
-    # Threat bar under gauge
-    bar_x0, bar_y0, bar_w = 140, 900, 400
-    _rounded(draw, [bar_x0, bar_y0, bar_x0 + bar_w, bar_y0 + 28], 10, PANEL3)
-    fill_w = int(bar_w * max(0.0, min(100.0, score)) / 100.0)
-    if fill_w > 16:
-        _rounded(draw, [bar_x0, bar_y0, bar_x0 + fill_w, bar_y0 + 28], 10, heat)
-    draw.text((bar_x0, bar_y0 + 44), "THREAT INTENSITY", font=micro, fill=MUTED)
-
-    # Severity mega
-    mega = _font(72, bold=True)
-    draw.text((620, 290), sev.upper(), font=mega, fill=sev_color)
-
-    # Title
-    title_font = _font(44, bold=True)
+    title_f = _font(26, bold=True)
     title = (vuln.title or "Untitled finding").strip()
-    title_lines = _wrap(draw, title, title_font, W - 720)[:3]
-    ty = 380
-    for line in title_lines:
-        draw.text((620, ty), line, font=title_font, fill=ICE)
-        ty += 56
+    for i, line in enumerate(_wrap(draw, title, title_f, W - rx - 60)[:3]):
+        draw.text((rx, 170 + i * 34), line, font=title_f, fill=ICE)
 
-    # Meta chips
-    chip_font = _font(26, bold=True)
-    chips = [
-        (f"CVSS {_fmt_cvss(vuln)}", ICE, PANEL3),
-        (f"T{vuln.source_tier}", TEAL, PANEL3),
-        ((vuln.category or "other").upper(), ICE, PANEL3),
-        ((vuln.source or "?")[:24], ICE, PANEL3),
-    ]
+    # Chips
+    chip_f = _font(14, bold=True)
+    cy = 280
+    cx = rx
+    cx = _chip(draw, cx, cy, f"CVSS {_fmt_cvss(vuln)}", chip_f, ICE, PANEL2)
+    cx = _chip(draw, cx, cy, f"T{vuln.source_tier}", chip_f, TEAL, PANEL2)
+    cx = _chip(draw, cx, cy, (vuln.category or "other").upper(), chip_f, ICE, PANEL2)
+    cx = _chip(draw, cx, cy, (vuln.source or "?")[:18], chip_f, ICE, PANEL2)
     if vuln.version_applicable:
-        chips.append(("FLEET MATCH", GREEN, (18, 48, 36)))
+        _chip(draw, cx, cy, "FLEET MATCH", chip_f, GREEN, (20, 48, 36))
     else:
-        chips.append(("NOT IN FLEET VER", AMBER, (48, 40, 18)))
-    cx, cy = 620, ty + 24
-    for label, fg, bg in chips:
-        cx = _chip(draw, cx, cy, label, chip_font, fg, bg, pad_x=20, h=52)
+        _chip(draw, cx, cy, "NOT IN FLEET", chip_f, AMBER, (48, 40, 18))
 
-    # Metric blocks
-    my = cy + 90
-    block_w = 520
-    products = ", ".join(vuln.matched_products[:4]) if vuln.matched_products else "unmatched / review"
-    cves = ", ".join(vuln.cve_ids[:4]) if vuln.cve_ids else (vuln.external_id or "pre-CVE")
-    _metric_block(draw, 620, my, block_w, 150, "MATCHED STACK", products[:48], TEAL)
-    _metric_block(
-        draw,
-        620 + block_w + 28,
-        my,
-        block_w,
-        150,
-        "CVE / ADVISORY",
-        cves[:48],
-        AMBER if (vuln.in_kev or vuln.in_hosting_kev) else TEAL,
+    # Metric cards
+    products = ", ".join(vuln.matched_products[:3]) if vuln.matched_products else "unmatched"
+    cves = ", ".join(vuln.cve_ids[:3]) if vuln.cve_ids else (vuln.external_id or "pre-CVE")
+    card_y = 340
+    card_h = 88
+    card_w = 420
+    _rounded(draw, [rx, card_y, rx + card_w, card_y + card_h], 14, PANEL2)
+    draw.rectangle([rx, card_y, rx + 6, card_y + card_h], fill=TEAL)
+    draw.text((rx + 22, card_y + 14), "MATCHED STACK", font=sub, fill=MUTED)
+    draw.text((rx + 22, card_y + 40), products[:36], font=_font(22, bold=True), fill=ICE)
+
+    _rounded(draw, [rx + card_w + 16, card_y, rx + card_w * 2 + 16, card_y + card_h], 14, PANEL2)
+    draw.rectangle([rx + card_w + 16, card_y, rx + card_w + 22, card_y + card_h], fill=AMBER)
+    draw.text((rx + card_w + 38, card_y + 14), "CVE / ADVISORY", font=sub, fill=MUTED)
+    draw.text(
+        (rx + card_w + 38, card_y + 40),
+        cves[:36],
+        font=_font(22, bold=True),
+        fill=AMBER if (vuln.in_kev or vuln.in_hosting_kev) else ICE,
     )
 
-    # Blast + channel strip
-    info_font = _font(28)
-    info_b = _font(28, bold=True)
-    iy = my + 180
-    draw.text((620, iy), "BLAST RADIUS", font=micro, fill=MUTED)
-    draw.text((620, iy + 36), (vuln.blast_radius or "normal").upper(), font=info_b, fill=heat)
-    draw.text((980, iy), "CHANNEL", font=micro, fill=MUTED)
-    draw.text((980, iy + 36), (vuln.channel or "critical").upper(), font=info_b, fill=ICE)
-    draw.text((1320, iy), "SOURCE TIER", font=micro, fill=MUTED)
-    draw.text((1320, iy + 36), f"T{vuln.source_tier}", font=info_b, fill=TEAL)
-
-    # Operator impact panel
-    impact = (vuln.impact_note or "No hosting-specific impact note for this product match.").strip()
-    _rounded(draw, [620, 1080, W - 100, 1280], 22, PANEL2, outline=_blend(TEAL, LINE, 0.5), width=2)
-    draw.text((656, 1100), "OPERATOR IMPACT", font=_font(24, bold=True), fill=TEAL)
-    body = _font(30)
-    impact_lines = _wrap(draw, impact, body, W - 780)[:3]
-    iy = 1148
-    for line in impact_lines:
-        draw.text((656, iy), line, font=body, fill=ICE)
-        iy += 40
+    # Impact
+    impact = (vuln.impact_note or "No hosting-specific impact note.").strip()
+    _rounded(draw, [rx, 450, W - 52, 620], 14, PANEL2)
+    draw.text((rx + 22, 464), "OPERATOR IMPACT", font=_font(13, bold=True), fill=TEAL)
+    body = _font(18)
+    iy = 494
+    for line in _wrap(draw, impact, body, W - rx - 100)[:3]:
+        draw.text((rx + 22, iy), line, font=body, fill=ICE)
+        iy += 28
 
     # Footer
-    foot = _font(24)
+    foot = _font(13)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    draw.line([(100, 1320), (W - 100, 1320)], fill=LINE, width=2)
-    draw.text((100, 1348), "sentinelwatch  ·  shared-hosting early warning", font=foot, fill=MUTED)
-    draw.text((1000, 1348), now, font=foot, fill=MUTED)
-    brand_w = draw.textlength("BLACKRAINSENTINEL", font=foot)
-    draw.text((W - 100 - brand_w, 1348), "BLACKRAINSENTINEL", font=foot, fill=TEAL_DIM)
+    draw.line([(52, 640), (W - 52, 640)], fill=LINE, width=1)
+    draw.text((52, 656), "sentinelwatch · shared-hosting early warning", font=foot, fill=MUTED)
+    draw.text((520, 656), now, font=foot, fill=MUTED)
+    bw = draw.textlength("BLACKRAINSENTINEL", font=foot)
+    draw.text((W - 52 - bw, 656), "BLACKRAINSENTINEL", font=foot, fill=TEAL)
 
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    return buf.getvalue()
+    return _encode_photo(img)
 
 
 def render_digest_card(items: list[Vulnerability], title: str = "Daily Digest") -> bytes | None:
@@ -440,47 +343,50 @@ def render_digest_card(items: list[Vulnerability], title: str = "Daily Digest") 
         return None
 
     img = Image.new("RGB", (W, H), INK)
-    _paint_atmosphere(img, TEAL)
     draw = ImageDraw.Draw(img)
-    draw.rectangle([0, 0, 28, H], fill=TEAL)
-    _hud_brackets(draw, 56, 56, W - 56, H - 56, TEAL_DIM, arm=48)
-    _rounded(draw, [68, 68, W - 68, H - 68], 28, PANEL, outline=LINE, width=2)
+    for y in range(H):
+        t = y / H
+        draw.line([(0, y), (W, y)], fill=(10 + int(8 * t), 14 + int(10 * t), 22 + int(12 * t)))
+    draw.rectangle([0, 0, 12, H], fill=TEAL)
+    _rounded(draw, [28, 24, W - 28, H - 24], 20, PANEL)
 
-    brand = _font(56, bold=True)
-    sub = _font(28)
-    body = _font(32)
-    body_b = _font(32, bold=True)
-    draw.text((120, 110), "SENTINELWATCH", font=brand, fill=TEAL)
-    draw.text((120, 180), title.upper(), font=sub, fill=MUTED)
+    brand = _font(28, bold=True)
+    sub = _font(16)
+    draw.text((52, 44), "SENTINELWATCH", font=brand, fill=TEAL)
+    draw.text((52, 80), title.upper(), font=sub, fill=MUTED)
     count = f"{len(items)} ITEMS"
     cw = draw.textlength(count, font=brand)
-    draw.text((W - 120 - cw, 120), count, font=brand, fill=ICE)
+    draw.text((W - 52 - cw, 48), count, font=brand, fill=ICE)
 
-    y = 260
-    for v in items[:8]:
+    y = 120
+    body = _font(17)
+    body_b = _font(20, bold=True)
+    for v in items[:6]:
         sev = (v.severity_tier or "unknown").lower()
         color = _SEVERITY_COLOR.get(sev, MUTED)
         heat = _tier_heat(float(v.alert_score or 0))
-        _rounded(draw, [120, y, W - 120, y + 110], 18, PANEL2, outline=LINE, width=1)
-        draw.rectangle([120, y, 148, y + 110], fill=color)
-        score = f"{v.alert_score:.0f}"
-        draw.text((180, y + 28), score.rjust(3), font=_font(48, bold=True), fill=heat)
+        _rounded(draw, [52, y, W - 52, y + 72], 12, PANEL2)
+        draw.rectangle([52, y, 64, y + 72], fill=color)
+        score = f"{float(v.alert_score or 0):.0f}"
+        draw.text((80, y + 20), score.rjust(3), font=body_b, fill=heat)
         flags = []
         if v.in_kev:
             flags.append("KEV")
         if v.in_hosting_kev:
             flags.append("H-KEV")
-        head = (v.title or "")[:72]
+        head = (v.title or "")[:64]
         if flags:
             head = f"[{'|'.join(flags)}] {head}"
-        draw.text((340, y + 24), head, font=body, fill=ICE)
-        meta = f"{sev.upper()}  ·  blast {(v.blast_radius or '?')}  ·  T{v.source_tier}"
-        draw.text((340, y + 68), meta, font=sub, fill=MUTED)
-        y += 128
+        draw.text((150, y + 14), head, font=body, fill=ICE)
+        draw.text(
+            (150, y + 42),
+            f"{sev.upper()} · blast {v.blast_radius or '?'} · T{v.source_tier}",
+            font=sub,
+            fill=MUTED,
+        )
+        y += 84
 
-    if len(items) > 8:
-        draw.text((120, H - 120), f"+ {len(items) - 8} more in full digest text", font=sub, fill=MUTED)
+    if len(items) > 6:
+        draw.text((52, H - 48), f"+ {len(items) - 6} more in digest text", font=sub, fill=MUTED)
 
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    return buf.getvalue()
+    return _encode_photo(img)

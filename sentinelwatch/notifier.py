@@ -198,16 +198,19 @@ class TelegramNotifier:
 
     def send_photo(
         self,
-        png: bytes,
+        image: bytes,
         caption: str,
         *,
         channel: str = "critical",
+        filename: str = "sentinelwatch.jpg",
     ) -> bool:
+        """Inline chat photo — big on-screen preview (never a file attachment)."""
         if not self.enabled:
             return False
         chat_id = self._chat_for(channel)
         url = f"https://api.telegram.org/bot{self.bot_token}/sendPhoto"
         cap = caption if len(caption) <= 1024 else caption[:1000] + "\n…"
+        mime = "image/jpeg" if filename.lower().endswith((".jpg", ".jpeg")) else "image/png"
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 resp = client.post(
@@ -217,7 +220,7 @@ class TelegramNotifier:
                         "caption": cap,
                         "parse_mode": "HTML",
                     },
-                    files={"photo": ("sentinelwatch.png", png, "image/png")},
+                    files={"photo": (filename, image, mime)},
                 )
                 resp.raise_for_status()
             return True
@@ -225,46 +228,11 @@ class TelegramNotifier:
             log.exception("Telegram photo send failed (channel=%s)", channel)
             return False
 
-    def send_document(
-        self,
-        png: bytes,
-        caption: str,
-        *,
-        channel: str = "critical",
-    ) -> bool:
-        """Lossless PNG delivery (no Telegram photo recompression)."""
-        if not self.enabled:
-            return False
-        chat_id = self._chat_for(channel)
-        url = f"https://api.telegram.org/bot{self.bot_token}/sendDocument"
-        cap = caption if len(caption) <= 1024 else caption[:1000] + "\n…"
-        try:
-            with httpx.Client(timeout=self.timeout) as client:
-                resp = client.post(
-                    url,
-                    data={
-                        "chat_id": chat_id,
-                        "caption": cap,
-                        "parse_mode": "HTML",
-                    },
-                    files={"document": ("sentinelwatch-brief.png", png, "image/png")},
-                )
-                resp.raise_for_status()
-            return True
-        except Exception:
-            log.exception("Telegram document send failed (channel=%s)", channel)
-            return False
-
     def send_alert(self, vuln: Vulnerability) -> bool:
         channel = vuln.channel or "critical"
         caption = format_alert_caption(vuln)
-        png = render_alert_card(vuln)
-        if not png:
-            return self.send(format_alert(vuln), channel=channel)
-        # Document first = full 2560×1440 sharpness; photo fallback for clients that prefer inline
-        if self.send_document(png, caption, channel=channel):
-            return True
-        if self.send_photo(png, caption, channel=channel):
+        photo = render_alert_card(vuln)
+        if photo and self.send_photo(photo, caption, channel=channel):
             return True
         return self.send(format_alert(vuln), channel=channel)
 
@@ -276,13 +244,9 @@ class TelegramNotifier:
         title: str = "daily digest",
     ) -> bool:
         text = format_digest(items, title=title)
-        png = render_digest_card(list(items), title=title)
-        if png and self.send_document(png, text[:900], channel=channel):
-            if len(items) > 8:
-                self.send(text, channel=channel)
-            return True
-        if png and self.send_photo(png, text[:900], channel=channel):
-            if len(items) > 8:
+        photo = render_digest_card(list(items), title=title)
+        if photo and self.send_photo(photo, text[:900], channel=channel):
+            if len(items) > 6:
                 self.send(text, channel=channel)
             return True
         return self.send(text, channel=channel)
