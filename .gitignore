@@ -43,3 +43,4 @@ htmlcov/
 node_modules/
 demo/**/dist/
 demo/**/node_modules/
+docs/*.bundle
