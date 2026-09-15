@@ -166,7 +166,7 @@ class TelegramNotifier:
         *,
         critical_chat_id: str | None = None,
         wordpress_chat_id: str | None = None,
-        timeout: float = 45.0,
+        timeout: float = 120.0,  # large severity GIFs (~9MB) need headroom
     ) -> None:
         self.bot_token = (bot_token or os.environ.get("TELEGRAM_BOT_TOKEN", "")).strip()
         self.chat_id = (chat_id or os.environ.get("TELEGRAM_CHAT_ID", "")).strip()
