@@ -406,7 +406,11 @@ def assets_dir() -> Path:
 def asset_paths(state: SeverityState, *, project_name: str = PROJECT_NAME) -> dict[str, Path]:
     root = assets_dir()
     _ = project_name
-    return {"gif": root / f"{state.value}.gif", "png": root / f"{state.value}.png"}
+    return {
+        "mp4": root / f"{state.value}.mp4",
+        "gif": root / f"{state.value}.gif",
+        "png": root / f"{state.value}.png",
+    }
 
 
 def resolve_assets(
@@ -414,9 +418,11 @@ def resolve_assets(
     *,
     project_name: str = PROJECT_NAME,
 ) -> tuple[SeverityState, Path, Path]:
+    """Return (state, animation, png). Prefer MP4 for Telegram autoplay; GIF is fallback."""
     state = cvss_to_state(cvss)
     paths = asset_paths(state, project_name=project_name)
-    return state, paths["gif"], paths["png"]
+    anim = paths["mp4"] if paths["mp4"].is_file() else paths["gif"]
+    return state, anim, paths["png"]
 
 
 def export_all(*, project_name: str = PROJECT_NAME, out_dir: Path | None = None) -> dict[str, dict[str, Path]]:

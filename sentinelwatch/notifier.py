@@ -251,13 +251,14 @@ class TelegramNotifier:
 
     def send_animation(
         self,
-        gif: bytes,
+        data: bytes,
         caption: str,
         *,
         channel: str = "critical",
-        filename: str = "sentinelwatch-severity.gif",
+        filename: str = "sentinelwatch-severity.mp4",
+        content_type: str = "video/mp4",
     ) -> bool:
-        """Inline animated GIF (Telegram sendAnimation)."""
+        """Inline animation via Telegram sendAnimation (MP4 preferred; GIF fallback)."""
         if not self.enabled:
             return False
         chat_id = self._chat_for(channel)
@@ -272,7 +273,7 @@ class TelegramNotifier:
                         "caption": cap,
                         "parse_mode": "HTML",
                     },
-                    files={"animation": (filename, gif, "image/gif")},
+                    files={"animation": (filename, data, content_type)},
                 )
                 resp.raise_for_status()
             return True
@@ -283,11 +284,18 @@ class TelegramNotifier:
     def send_alert(self, vuln: Vulnerability) -> bool:
         channel = vuln.channel or "critical"
         caption = format_alert_caption(vuln)
-        # Branded severity emblem GIF selected from CVSS (prerecorded asset)
+        # Branded severity emblem (MP4/GIF) selected from CVSS
         try:
-            _state, gif_path, png_path = resolve_assets(vuln.cvss_score)
-            if gif_path.is_file():
-                if self.send_animation(gif_path.read_bytes(), caption, channel=channel):
+            _state, anim_path, png_path = resolve_assets(vuln.cvss_score)
+            if anim_path.is_file():
+                is_mp4 = anim_path.suffix.lower() == ".mp4"
+                if self.send_animation(
+                    anim_path.read_bytes(),
+                    caption,
+                    channel=channel,
+                    filename=anim_path.name,
+                    content_type="video/mp4" if is_mp4 else "image/gif",
+                ):
                     return True
             if png_path.is_file() and self.send_photo(
                 png_path.read_bytes(),

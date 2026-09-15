@@ -30,6 +30,18 @@ python scripts/install_threat_core_gifs.py ~/Downloads/threat-core-6-high-qualit
 
 PNG fallbacks are the first frame of each GIF (reduced-motion / Telegram photo fallback).
 
+## Telegram animation (MP4)
+
+Large 1080² GIFs (~9MB) often show as a **static first frame** in Telegram.
+Convert to mute H.264 MP4 (autoplays via `sendAnimation`):
+
+```bash
+.venv/bin/pip install imageio-ffmpeg
+python scripts/export_severity_mp4.py
+```
+
+`resolve_assets()` prefers `{state}.mp4` when present, else `{state}.gif`.
+
 ## Procedural export (optional)
 
 `python scripts/export_severity_emblems.py` regenerates the older H2 code-rain look.
